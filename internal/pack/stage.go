@@ -59,6 +59,8 @@ type Staged struct {
 	Renamed map[string]string
 	// Size is the total size of the staged files, in bytes.
 	Size int64
+	// Notes are messages for the user about what the fetch did or left out.
+	Notes []string
 	// LockEntries holds raw skills-lock.json entries (npx only).
 	LockEntries map[string][]byte
 }
@@ -101,7 +103,7 @@ func normalizeInto(src fs.FS, srcDir string, dst func(orig, norm string) error) 
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		if _, err := fs.Stat(src, path.Join(srcDir, e.Name(), library.SkillFile)); err != nil {
+		if !hasSkillFile(src, path.Join(srcDir, e.Name())) {
 			continue
 		}
 		norm := library.NormalizeName(e.Name())
@@ -281,7 +283,9 @@ func RecoverTombstones(root *os.Root, known func(name string) bool) ([]string, e
 
 // CheckLinks rejects a staged pack that holds a symlink which leaves its skill
 // directory. A skill may link to its own files and to nothing else, because the
-// agent follows links when it reads supporting files.
+// agent follows links when it reads supporting files. This is stricter than the
+// pack directory that the shim lets the agent read: a path in a body is in plain
+// view, but a link is followed with no sign.
 func CheckLinks(root *os.Root, dir string) error {
 	f, err := root.Open(dir)
 	if err != nil {
@@ -295,6 +299,11 @@ func CheckLinks(root *os.Root, dir string) error {
 	var bad []string
 	for _, sk := range skills {
 		top := path.Join(dir, sk.Name())
+		if sk.Type()&fs.ModeSymlink != 0 {
+			target, _ := root.Readlink(top)
+			bad = append(bad, sk.Name()+" -> "+target)
+			continue
+		}
 		var walk func(rel string) error
 		walk = func(rel string) error {
 			d, err := root.Open(rel)

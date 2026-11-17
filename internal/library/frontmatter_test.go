@@ -118,8 +118,8 @@ func TestDetectWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := DetectWarnings(fm, body)
-	if len(w) != 5 {
-		t.Fatalf("want 5 warnings, got %v", w)
+	if len(w) != 4 {
+		t.Fatalf("want 4 warnings (the skill-dir placeholder is not one), got %v", w)
 	}
 	fm, _, body, _ = ParseSkill([]byte("---\nname: x\ncontext: inline\n---\n```!\nls\n```\n"))
 	if w := DetectWarnings(fm, body); len(w) != 1 || w[0] != warnBang {

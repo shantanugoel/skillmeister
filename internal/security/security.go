@@ -67,7 +67,61 @@ var lineRules = []lineRule{
 	{RuleBase64, regexp.MustCompile(`base64\s+(-\w*[dD]\w*|--decode)|[A-Za-z0-9+/]{160,}={0,2}`), "decodes or holds an opaque blob"},
 	{RuleSecretPath, regexp.MustCompile(`(?i)(\.ssh/|\.aws/|\.gnupg/|\.kube/config|\.docker/config|id_rsa|id_ed25519|/etc/shadow|\.netrc|\.npmrc|\.pypirc|credentials\.json|(^|[\s'"/])\.env\b|keychain)`), "names a place where secrets live"},
 	{RuleBang, regexp.MustCompile("(!`|^\\s*```!)"), "native command injection syntax"},
-	{RuleParentEscape, regexp.MustCompile(`(^|[\s"'` + "`" + `(=<}/])\.\./`), "reads outside the skill directory"},
+	{RuleParentEscape, parentRE, "reads outside the pack directory"},
+}
+
+// parentRE finds a run of ../ segments at the start of a path. Group 1 is the
+// character before the run, group 2 is the run, and group 3 is a final bare ..
+// (as in ../..).
+var parentRE = regexp.MustCompile(`(^|[\s"'` + "`" + `(=<}/])((?:\.\./)+)(\.\.(?:[^\w./]|$))?`)
+
+// skillDirVars name the skill directory in a body.
+var skillDirVars = []string{"${CLAUDE_SKILL_DIR}", "$CLAUDE_SKILL_DIR", "<SKILL_DIR>"}
+
+// leavesPack reports whether a line has a ../ path that leaves the pack
+// directory. A skill may use the files of the other skills in its pack, so a
+// path that goes up to the pack directory and no further is not a hit. file is
+// the path of the file relative to the skill directory.
+//
+// The start of the path sets how far up it can go:
+//   - no prefix: the directory of the file;
+//   - a skill-directory placeholder such as ${CLAUDE_SKILL_DIR}/: the skill
+//     directory;
+//   - a relative name such as references/: the directory of the file, or lower;
+//   - any other prefix (/x/, ~/, $HOME/, <SKILLS>/): unknown, so no level up is
+//     safe.
+func leavesPack(line, file string) bool {
+	// Levels from the directory of the file up to the pack directory.
+	fromFile := 1 + strings.Count(file, "/")
+	for _, m := range parentRE.FindAllStringSubmatchIndex(line, -1) {
+		up := (m[5] - m[4]) / len("../")
+		if m[6] >= 0 {
+			up++
+		}
+		limit := fromFile
+		if m[3] > m[2] && line[m[2]:m[3]] == "/" {
+			limit = prefixLimit(line[:m[2]], fromFile)
+		}
+		if up > limit {
+			return true
+		}
+	}
+	return false
+}
+
+// prefixLimit returns how many levels a path can go up after the text before
+// its slash.
+func prefixLimit(before string, fromFile int) int {
+	for _, v := range skillDirVars {
+		if strings.HasSuffix(before, v) {
+			return 1
+		}
+	}
+	tok := before[strings.LastIndexAny(before, " \t\"'`(=<")+1:]
+	if tok == "" || strings.ContainsAny(tok[:1], "/~$<{") || strings.ContainsAny(tok, ":$<>{}") {
+		return 0
+	}
+	return fromFile
 }
 
 const maxScanFile = 1 << 20
@@ -153,7 +207,7 @@ func scanSkill(lib *library.Library, p *manifest.Pack, r *library.Record) ([]Hit
 		}
 		for i, line := range strings.Split(string(data), "\n") {
 			for _, rule := range lineRules {
-				if rule.re.MatchString(line) {
+				if rule.re.MatchString(line) && (rule.name != RuleParentEscape || leavesPack(line, f.Path)) {
 					add(&hits, rule.name, f.Path, i+1, rule.note)
 				}
 			}

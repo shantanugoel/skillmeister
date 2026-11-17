@@ -10,6 +10,7 @@ import (
 
 	"github.com/shantanugoel/skillmeister/internal/harness"
 	"github.com/shantanugoel/skillmeister/internal/library"
+	"github.com/shantanugoel/skillmeister/internal/lock"
 	"github.com/shantanugoel/skillmeister/internal/manifest"
 )
 
@@ -32,7 +33,7 @@ defaults:
 var libraryFiles = []struct{ name, content string }{
 	{manifest.FileName, initManifest},
 	{"skills/.gitkeep", ""},
-	{".gitignore", ".import/\n.removed/\n.skillmeister.lock\nnode_modules/\n"},
+	{library.GitignoreFile, strings.Join(library.GitignoreLines, "\n") + "\n"},
 	{".gitattributes", "* -text\n"},
 }
 
@@ -97,7 +98,15 @@ func cmdInit(g *globals, args []string) error {
 	if created {
 		g.printf("created the library at %s\n", dir)
 	} else {
-		g.printf("the library at %s already exists; no library file was changed\n", dir)
+		added, err := repairGitignore(lib)
+		if err != nil {
+			return ioErr(err)
+		}
+		if len(added) > 0 {
+			g.printf("the library at %s already exists; added to %s: %s\n", dir, library.GitignoreFile, strings.Join(added, " "))
+		} else {
+			g.printf("the library at %s already exists; no library file was changed\n", dir)
+		}
 	}
 	if *noShim {
 		g.printf("skipped the agent setup (--no-shim)\n")
@@ -145,6 +154,34 @@ func ensureLibrary(dir string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// repairGitignore appends the missing ignore lines to the library .gitignore.
+// It never removes or changes a line. It returns the lines that it added.
+func repairGitignore(lib *library.Library) ([]string, error) {
+	missing, err := library.MissingGitignore(lib)
+	if err != nil || len(missing) == 0 {
+		return nil, err
+	}
+	old, err := lib.Root.ReadFile(library.GitignoreFile)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	var b strings.Builder
+	b.Write(old)
+	if len(old) > 0 && old[len(old)-1] != '\n' {
+		b.WriteByte('\n')
+	}
+	b.WriteString("# added by skillmeister init\n")
+	b.WriteString(strings.Join(missing, "\n") + "\n")
+	mode := fs.FileMode(0o644)
+	if info, err := lib.Root.Stat(library.GitignoreFile); err == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := lock.WriteFileAtomic(lib.Root, library.GitignoreFile, []byte(b.String()), mode); err != nil {
+		return nil, err
+	}
+	return missing, nil
 }
 
 // noLibraryHint tells the user how to make a library. It says so only when

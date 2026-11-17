@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shantanugoel/skillmeister/internal/library"
 	"github.com/shantanugoel/skillmeister/internal/lock"
 )
 
@@ -58,6 +59,7 @@ func newLib(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	write(t, dir, "skillmeister.yaml", baseManifest)
+	write(t, dir, library.GitignoreFile, strings.Join(library.GitignoreLines, "\n")+"\n")
 	write(t, dir, "skills/alpha/SKILL.md", skillMD("alpha", "Alpha tool for tests."))
 	write(t, dir, "skills/beta/SKILL.md", skillMD("beta", "Beta tool for tests."))
 	return dir
@@ -167,6 +169,14 @@ func TestEnableDisable(t *testing.T) {
 	}
 	if r := run(t, dir, "find", "--json", "--all", "alpha"); !strings.Contains(r.out, "own/alpha") {
 		t.Errorf("--all must include it: %s", r.out)
+	}
+	// The shim loads a sibling skill through `path`, so `path` must refuse a
+	// disabled skill.
+	if r := run(t, dir, "path", "own/alpha"); r.code == 0 {
+		t.Errorf("path must fail for a disabled skill: %s", r.out)
+	}
+	if r := mustOK(t, run(t, dir, "path", "own/beta")); !strings.HasSuffix(strings.TrimSpace(r.out), filepath.Join("skills", "beta", "SKILL.md")) {
+		t.Errorf("path own/beta = %s", r.out)
 	}
 	m := read(t, dir, "skillmeister.yaml")
 	if !strings.Contains(m, "disable: [alpha]") || !strings.Contains(m, "# my own skills") || !strings.Contains(m, "trust: trusted # mine") {

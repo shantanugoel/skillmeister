@@ -42,6 +42,7 @@ const (
 	CodeNameMismatch = "name-mismatch"
 	CodeNested       = "nested-skill"
 	CodeNative       = "native-fields"
+	CodeGitignore    = "gitignore-missing"
 )
 
 var integrity = map[string]bool{
@@ -127,7 +128,20 @@ func Run(lib *library.Library) (*Report, error) {
 		c.checkPack(m.Packs[name])
 	}
 	c.checkOrphans()
+	c.checkGitignore()
 	return c.rep, nil
+}
+
+// checkGitignore reports ignore lines that the library .gitignore lacks.
+func (c *checker) checkGitignore() {
+	missing, err := library.MissingGitignore(c.lib)
+	if err != nil {
+		c.add(Warn, CodeGitignore, "", library.GitignoreFile, "cannot read %s: %v", library.GitignoreFile, err)
+		return
+	}
+	if len(missing) > 0 {
+		c.add(Warn, CodeGitignore, "", library.GitignoreFile, "%s lacks %s; run `skillmeister init` to add them", library.GitignoreFile, strings.Join(missing, " "))
+	}
 }
 
 func (c *checker) checkPack(p *manifest.Pack) {

@@ -57,6 +57,8 @@ the other skills exist.
 A natively installed skill gets `allowed-tools`, `context: fork`, hooks, `!`
 command injection, `${CLAUDE_SKILL_DIR}` substitution, and auto-triggering. A
 routed skill gets none of that. It is a document the agent reads and follows.
+The shim tells the agent to use the skill directory for `${CLAUDE_SKILL_DIR}`
+and for similar placeholders, so that one feature has a replacement.
 
 That is acceptable for reference and workflow skills, which are most of them. For
 an action skill that depends on native semantics, install it natively for that

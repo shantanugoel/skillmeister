@@ -14,8 +14,13 @@ var tmpl = string(Template)
 
 func TestRender(t *testing.T) {
 	out, err := Render([]byte(tmpl), "/bin/sm", "/lib")
-	if err != nil || !strings.Contains(string(out), `"/bin/sm" --library "/lib" find`) || strings.Contains(string(out), "{{") {
+	if err != nil || strings.Contains(string(out), "{{") {
 		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{`"/bin/sm" --library "/lib" find`, `"/bin/sm" --library "/lib" path <pack>/<name>`, "${CLAUDE_SKILL_DIR}", "<SKILLS>"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("the shim lacks %s", want)
+		}
 	}
 	for _, bad := range [][2]string{{"rel/sm", "/lib"}, {"/bin/sm", "lib"}, {`/bin/"x`, "/lib"}, {"/bin/sm", "/li\nb"}} {
 		if _, err := Render([]byte(tmpl), bad[0], bad[1]); err == nil {

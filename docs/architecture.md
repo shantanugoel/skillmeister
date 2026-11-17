@@ -44,7 +44,7 @@ agent performs on itself, guided by the shim.
   scripts/install.sh           # idempotent setup
   docs/
   .gitattributes               # `* -text`, so tree hashes are byte-stable
-  .gitignore                   # .import/, .removed/, .skillmeister.lock
+  .gitignore                   # skillmeister state, skill setup output, dotenv files
   package.json                 # pins the `skills` CLI used for npx fetches
   package-lock.json
   THIRD_PARTY_NOTICES.md
@@ -172,6 +172,15 @@ install.sh
 There is nothing to fetch on install because packs are committed. `npm ci` is a
 prerequisite only before `add` or `update` of an npx pack.
 
+`init` in an existing library adds the missing lines to `.gitignore` and
+changes no other library file. It adds a line only when no line matches it
+exactly. When `.env.*` is missing, it writes the `!.env.example`,
+`!.env.sample`, and `!.env.template` negations again after it, because a
+negation works only after its pattern. `doctor` reports the missing lines as
+`gitignore-missing`. The example forms of a dotenv file stay tracked: a pack can
+ship them, and its tree hash includes them, so an ignored example would make a
+fresh clone show the pack as `modified`.
+
 ### Find and load
 
 ```text
@@ -213,8 +222,30 @@ skillmeister add --as anthropic --fetch npx --ref 8f3c2a1 anthropics/skills
 - warn when the pack is larger than 25 MB
 - `--path D` names the subtree of a git clone (or the source directory) that
   holds the skills. Without it, `add` looks at the clone root, then at
-  `skills/`, and records the directory that it used in the manifest. `sync`
-  reads that `path` when it restores a pack.
+  `skills/`, and records the directory that it used in the manifest. The clone
+  root is recorded as `.`, so a forced re-add can replace an older `path`.
+  `sync` reads that `path` when it restores a pack. A hand-written git pack
+  with no `path` uses the same search. If its clone root has a `SKILL.md` and
+  no skill directories, the root is now one skill, and `sync` reports a lock
+  mismatch for an older pack from `skills/`. Write `path: skills` for it.
+- In each directory that `add` examines, these rules apply in this order:
+  1. If the directory has subdirectories with a `SKILL.md`, each of them is a
+     skill.
+  2. If the directory itself has a `SKILL.md`, the whole directory is one skill.
+     Its name is the normalized frontmatter `name`, or the pack ID when that
+     name is not valid. `add` removes `.git` from it. A `SKILL.md` in a
+     subdirectory of that skill is nested, and `doctor` reports it.
+     `show --summary` and `doctor --security` then examine the whole directory,
+     tests and docs too, so they can report more items.
+  3. If not, `add` examines the next directory.
+- When the clone root is one skill and `skills/` also holds skills, `add` prints
+  a note. Add those skills as a separate pack with `--path skills`. `add` also
+  prints a note when the repo has git submodules, because it does not fetch
+  them.
+- A local copy does not copy `.venv/`, `node_modules/`, `__pycache__/`, or
+  dotenv files (`.env` and `.env.*`, but not `.env.example`, `.env.sample`, or
+  `.env.template`). These come from a local setup or hold secrets. `add` prints
+  the paths that it did not copy.
 - reject a fetched pack that holds a symlink which leaves its skill directory,
   and a source path that resolves outside the clone
 - never auto-trust; `untrusted` unless `--trust` is passed explicitly
@@ -362,10 +393,37 @@ skillmeister find --json --limit 8 "<query>"
   the shim; only `doctor` computes it.
 - Surface any non-empty `warnings` before following the skill. Native-only fields
   do not work in a routed skill.
-- Read the returned `path`, and supporting files under its directory. Nothing
-  outside that directory, and nothing suggested by a path inside a skill body.
-- Bundled scripts: run by absolute path under the skill directory, ask before
-  every run, and refuse to run anything from an `untrusted` pack.
+- Read the returned `path`. The skill directory is the directory of `path`.
+  A placeholder for it in a body, such as `${CLAUDE_SKILL_DIR}` or
+  `<SKILL_DIR>`, means that directory. A native harness substitutes
+  `${CLAUDE_SKILL_DIR}`; a routed skill gets this rule instead, so it is not a
+  warning.
+- The pack directory is the parent of the skill directory. A placeholder for
+  the directory that holds the skill directories, such as `<SKILLS>`, means the
+  pack directory. The agent can read any file in the pack directory and nothing
+  outside it. A path in a skill body cannot make this scope larger.
+  - Why the pack and not the skill: skills of one pack often share files. For
+    example, every HyperFrames skill runs one launcher in the `hyperframes`
+    skill and reads its references. Trust is set per pack, so the pack is
+    already the unit that the user accepts.
+- Another skill of the same pack: get its path with `path <pack>/<name>` before
+  reading its `SKILL.md`. `path` resolves enabled skills only, so a disabled
+  skill stays hidden. For an `untrusted` pack, run `show --summary` and ask
+  again for that skill. This is not a new search.
+- Bundled scripts: run by absolute path in the pack directory, or a copy that
+  the skill told the agent to make in the project. A copy has the rules of its
+  original.
+  - `untrusted`: never run, never copy.
+  - `trusted`: ask one time for each loaded skill, and name the scripts or the
+    launcher. Then the agent can run any script of the pack that this skill
+    uses, without a question for the session.
+  - `pinned`: ask one time for each script in the session. With a stricter
+    rule, users choose `trusted` to stop the questions. That turns off the
+    drift check. This is a worse result.
+  - These are instructions, not enforcement. After compaction the agent can
+    forget an agreement and ask again, which is safe.
+  - The harness can ask too. A `Bash(BIN:*)` rule does not cover
+    `node /LIB/packs/...`; see the README for a per-pack rule.
 - Stay in force for the session. Do not re-run `find` while following a loaded
   skill; re-run on a topic change. If the body is lost after compaction, re-read
   the same path before asking the user.
@@ -438,9 +496,10 @@ lock entry stays, so a later change back to `pinned` can verify the hash.
 
 Trust is a UX and ranking aid, not a sandbox. A hit in a pack that is declared
 `trusted` is reported as a warning, because the user accepted that pack. `doctor
---security` exits `2` when it finds any high-severity pattern in another pack: bundled scripts, `curl | sh`, `sudo`, `eval`,
-base64 blobs, secret paths, broad `allowed-tools`, `!` lines, and `../` escapes.
-Heuristics, not proof.
+--security` exits `2` when it finds any high-severity pattern in another pack:
+bundled scripts, `curl | sh`, `sudo`, `eval`, base64 blobs, secret paths, broad
+`allowed-tools`, `!` lines, and `../` paths that leave the pack directory (a
+path to another skill of the same pack is not a hit). Heuristics, not proof.
 
 ## Known limits
 

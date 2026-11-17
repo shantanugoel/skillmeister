@@ -20,15 +20,16 @@ skillmeister init
 `skillmeister init` does the setup. It is safe to run again.
 
 1. It creates the library at `~/.skillmeister` (a manifest, a `skills/`
-   directory, `.gitignore`, and `.gitattributes`). An existing library is left
-   as it is.
+   directory, `.gitignore`, and `.gitattributes`). In an existing library, it
+   changes one file only: it adds missing lines to `.gitignore`. It never
+   removes or changes a line.
 2. It writes the shim into `~/.agents/skills/skillmeister` and
    `~/.claude/skills/skillmeister`. It stops, before it writes anything, if one
    of them is a real directory that skillmeister did not create.
 
 After `brew upgrade`, run `skillmeister init` again if `skillmeister doctor`
-reports `shim-stale`. The new binary carries the new shim text, and `init`
-rewrites the shim.
+reports `shim-stale` or `gitignore-missing`. The new binary carries the new shim
+text and the new ignore lines, and `init` writes them.
 
 `init` changes nothing but the library and those two shim directories. It does
 not edit `CLAUDE.md`, `AGENTS.md`, or any settings file.
@@ -106,6 +107,40 @@ settings file itself is not tested.
 
 Skillmeister does not change this file for you.
 
+The shim lets the agent run the scripts of a `trusted` pack after one question
+per skill. Claude Code can still ask before each command, because the `Bash`
+rule above covers only the skillmeister binary. To stop these questions for a
+pack that you trust, allow its launcher. For example, every HyperFrames skill
+runs one launcher:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(node /home/me/.skillmeister/packs/hyperframes/hyperframes/scripts/plugin-cli.mjs:*)"
+    ]
+  }
+}
+```
+
+These rules are not tested. Make it as narrow as possible: a rule such as
+`Bash(node:*)` lets the agent run any script.
+
+A skill setup can put secrets in the library, for example an API key in a
+`.env` file in the skill directory. The `Read` rule above lets the agent read
+such a file with no prompt. To prevent this, add a deny rule:
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Read(//home/me/.skillmeister/**/.env)",
+      "Read(//home/me/.skillmeister/**/.env.*)"
+    ]
+  }
+}
+```
+
 ## Use
 
 Flags go before positional arguments. Use `--` to end the flags.
@@ -141,9 +176,28 @@ upstream content of a modified pinned pack.
 
 `doctor --security` adds lexical heuristics: bundled scripts, `curl | sh`,
 `sudo`, `eval`, base64 blobs, secret paths, broad `allowed-tools`, `!` lines,
-and `../` paths. A hit in a pack that you declared `trusted` is a warning. A hit
-in any other pack is high severity and makes the command exit `2`. The rules
-are heuristics, not proof.
+and `../` paths that leave the pack directory. A hit in a pack that you declared
+`trusted` is a warning. A hit in any other pack is high severity and makes the
+command exit `2`. The rules are heuristics, not proof.
+
+`add` accepts a source that is one skill: a repo or directory with `SKILL.md`
+at its root. The whole directory becomes one skill. If the directory also has
+skill subdirectories, these subdirectories are the skills instead. `--path D`
+selects a subtree, and that subtree can also be one skill.
+
+### Skills that need a setup
+
+Some skills tell you to install dependencies or to write a secret into the
+skill directory, for example `uv sync` (which makes `.venv/`) or an API key in
+`.env`. The library `.gitignore` keeps these files out of git. These limits
+apply:
+
+- `update --apply` and `add --force` replace the whole pack directory. The
+  `.venv/`, the `.env`, and other local files in it are deleted. Do the setup
+  again after an update, and keep a copy of the secret in another place.
+- The tree hash of a `pinned` pack includes every file, so a setup in the pack
+  directory shows as `modified`. Use `trusted` for a pack that you set up in
+  place, or do the setup outside the library.
 
 `add`, `remove`, `update --apply`, and `sync` change files in the library. They never commit.
 Review the diff with `git status`, then commit it yourself.

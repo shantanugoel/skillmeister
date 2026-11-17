@@ -12,11 +12,12 @@ const (
 	warnFork         = "context: fork does not work in a routed skill"
 	warnHooks        = "hooks do not run in a routed skill"
 	warnBang         = "! command injection does not run in a routed skill"
-	warnSkillDir     = "${CLAUDE_SKILL_DIR} is not substituted in a routed skill"
 )
 
 // DetectWarnings returns the native-only features that a skill uses. The result
-// is never nil and its order is stable.
+// is never nil and its order is stable. A skill-directory placeholder such as
+// ${CLAUDE_SKILL_DIR} is not a warning: the shim tells the agent to use the
+// skill directory for it.
 func DetectWarnings(fm Frontmatter, body []byte) []string {
 	w := []string{}
 	if _, ok := fm.Fields["allowed-tools"]; ok {
@@ -30,9 +31,6 @@ func DetectWarnings(fm Frontmatter, body []byte) []string {
 	}
 	if hasBangInjection(body) {
 		w = append(w, warnBang)
-	}
-	if bytes.Contains(body, []byte("${CLAUDE_SKILL_DIR}")) {
-		w = append(w, warnSkillDir)
 	}
 	return w
 }

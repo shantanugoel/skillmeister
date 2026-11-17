@@ -62,7 +62,7 @@ func cmdAdd(g *globals, args []string) error {
 	fetchFlag := fs.String("fetch", "", "local, npx, or git")
 	ref := fs.String("ref", "", "branch, tag, or commit")
 	trustFlag := fs.String("trust", "", "trusted, pinned, or untrusted")
-	subPath := fs.String("path", "", "subtree of a git repo that holds the skills")
+	subPath := fs.String("path", "", "subtree of a git repo that holds the skills, or one skill")
 	force := fs.Bool("force", false, "replace an existing pack")
 	if err := parse(fs, args); err != nil {
 		return err
@@ -281,6 +281,9 @@ func (g *globals) summarizeAdd(lib *library.Library, name string, fetch manifest
 		}
 		sort.Strings(rn)
 		g.printf("  renamed: %s\n", strings.Join(rn, ", "))
+	}
+	for _, n := range s.Notes {
+		g.printf("  note: %s\n", n)
 	}
 	p := &manifest.Pack{Name: name, Fetch: fetch, Trust: trust}
 	recs, _ := lib.ScanPack(p, true)

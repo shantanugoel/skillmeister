@@ -74,9 +74,11 @@ The product is search quality; build that before any lifecycle machinery.
 - `manifest`: strict parse, defaults, validation, errors with file:line.
 - `library`: scan enabled packs, immediate subdirectories only, skip unparseable
   skills with a stderr warning, canonical IDs, bare-name resolution, containment.
-- Native-field detector: `allowed-tools`, `context: fork`, hooks, `!`,
-  `${CLAUDE_SKILL_DIR}` feed the record's `warnings` array. It lands here because
-  `show`, `add`, and the shim all surface warnings before Phase 4 exists.
+- Native-field detector: `allowed-tools`, `context: fork`, hooks, and `!` feed
+  the record's `warnings` array. (An earlier version had `${CLAUDE_SKILL_DIR}`
+  in this list. The shim now tells the agent what to use for it.) It lands here
+  because `show`, `add`, and the shim all surface warnings before Phase 4
+  exists.
 - `search`: exact name > prefix > name tokens > description > body. Score is
   100 for an exact name, 80 prefix, 60 name tokens, 40 description, 20 body only;
   ties break `own` first, then trust order, then name. Exact name is

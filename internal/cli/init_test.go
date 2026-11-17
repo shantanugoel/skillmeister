@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -208,5 +209,76 @@ func TestHintOnlyWhereInitCanHelp(t *testing.T) {
 	os.MkdirAll(empty, 0o755)
 	if r := runHome(t, home, "--library", empty, "list"); !strings.Contains(r.err, "init") {
 		t.Errorf("empty dir: %q", r.err)
+	}
+}
+
+func TestInitRepairsGitignore(t *testing.T) {
+	home := realPath(t, t.TempDir())
+	lib := filepath.Join(home, "lib")
+	mustOK(t, runHome(t, home, "--library", lib, "init", "--no-shim"))
+	// An older library: the old four lines, a user line, a negation before its
+	// pattern, and no newline at the end.
+	write(t, lib, ".gitignore", ".import/\n.removed/\n.skillmeister.lock\nnode_modules/\n!.env.example\n/out/")
+	r := runHome(t, home, "--library", lib, "doctor")
+	if !strings.Contains(r.out, "gitignore-missing") || !strings.Contains(r.out, ".venv/") {
+		t.Errorf("doctor must report the missing lines:\n%s", r.out)
+	}
+	r = mustOK(t, runHome(t, home, "--library", lib, "init", "--no-shim"))
+	if !strings.Contains(r.out, "added to .gitignore") {
+		t.Errorf("init:\n%s", r.out)
+	}
+	got := read(t, lib, ".gitignore")
+	want := ".import/\n.removed/\n.skillmeister.lock\nnode_modules/\n!.env.example\n/out/\n# added by skillmeister init\n" +
+		".venv/\n__pycache__/\n*.pyc\n.env\n.env.*\n!.env.example\n!.env.sample\n!.env.template\n"
+	if got != want {
+		t.Errorf(".gitignore:\n%s\nwant:\n%s", got, want)
+	}
+	if r := runHome(t, home, "--library", lib, "doctor"); strings.Contains(r.out, "gitignore-missing") {
+		t.Errorf("doctor after repair:\n%s", r.out)
+	}
+	// A third init changes nothing.
+	before := read(t, lib, ".gitignore")
+	r = mustOK(t, runHome(t, home, "--library", lib, "init", "--no-shim"))
+	if !strings.Contains(r.out, "no library file was changed") || read(t, lib, ".gitignore") != before {
+		t.Errorf("third init:\n%s", r.out)
+	}
+}
+
+func TestGitignoreKeepsEnvExamplesTracked(t *testing.T) {
+	needGit(t)
+	home := realPath(t, t.TempDir())
+	lib := filepath.Join(home, "lib")
+	mustOK(t, runHome(t, home, "--library", lib, "init", "--no-shim"))
+	for _, f := range []string{"p/.env", "p/.env.local", "p/.env.example", "p/.env.sample", "p/.env.template", "p/.venv/x", "p/__pycache__/a.pyc", "p/b.pyc", "p/ok.py"} {
+		write(t, lib, f, "x")
+	}
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = lib
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	cmd = exec.Command("git", "ls-files", "--others", "--exclude-standard", "p")
+	cmd.Dir = lib
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if got := strings.Fields(string(out)); strings.Join(got, ",") != "p/.env.example,p/.env.sample,p/.env.template,p/ok.py" {
+		t.Errorf("tracked files: %v", got)
+	}
+}
+
+func TestDoctorReportsMissingGitignore(t *testing.T) {
+	home := realPath(t, t.TempDir())
+	lib := filepath.Join(home, "lib")
+	mustOK(t, runHome(t, home, "--library", lib, "init", "--no-shim"))
+	os.Remove(filepath.Join(lib, ".gitignore"))
+	if r := runHome(t, home, "--library", lib, "doctor"); !strings.Contains(r.out, "gitignore-missing") {
+		t.Errorf("doctor:\n%s", r.out)
+	}
+	mustOK(t, runHome(t, home, "--library", lib, "init", "--no-shim"))
+	if got := read(t, lib, ".gitignore"); !strings.HasPrefix(got, "# added by skillmeister init\n.import/\n") {
+		t.Errorf(".gitignore:\n%s", got)
 	}
 }
