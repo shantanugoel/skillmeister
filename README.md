@@ -9,39 +9,54 @@ Read [docs/overview.md](docs/overview.md) for the idea and
 
 ## Install
 
-You need Go 1.27 or newer and git. You do not need a network.
-
-```sh
-git clone git@github.com:shantanugoel/skillmeister.git ~/dev/skillmeister
-cd ~/dev/skillmeister
-scripts/install.sh
-```
-
-The script is safe to run again. It does these steps:
-
-1. It builds the binary from `vendor/` and puts it in `~/.local/bin`
-   (`BIN_DIR` changes the place).
-2. It renders the shim into `~/.agents/skills/skillmeister` and
-   `~/.claude/skills/skillmeister`. It stops if one of them is a real directory
-   that skillmeister did not create.
-3. It adds one memory line to `~/.claude/CLAUDE.md` and
-   `~/.config/opencode/AGENTS.md`.
-4. It runs `skillmeister doctor`.
-
-Make sure `~/.local/bin` is in your `PATH`.
-
-To add or update an npx pack, run `npm ci` in the library first. This installs
-the pinned `skills` CLI.
-
-## Homebrew
-
-The binary is also in a Homebrew tap. It does not render the shim for you. For
-that, use `scripts/install.sh` from a clone.
+### With Homebrew
 
 ```sh
 brew tap shantanugoel/tap
 brew install skillmeister
+skillmeister init
 ```
+
+`skillmeister init` does the setup. It is safe to run again.
+
+1. It creates the library at `~/.skillmeister` (a manifest, a `skills/`
+   directory, `.gitignore`, and `.gitattributes`). An existing library is left
+   as it is.
+2. It writes the shim into `~/.agents/skills/skillmeister` and
+   `~/.claude/skills/skillmeister`. It stops, before it writes anything, if one
+   of them is a real directory that skillmeister did not create.
+3. It adds one memory line to `~/.claude/CLAUDE.md` and
+   `~/.config/opencode/AGENTS.md`.
+
+Use `--library PATH` to put the library somewhere else, or `--no-shim` to make
+the library without touching agent config. Skillmeister keeps no config file. To
+use another library every time, set `SKILLMEISTER_ROOT` in your shell profile.
+If you run a command before `init`, the error tells you to run it.
+
+### From a release or a clone
+
+Download a binary from the
+[releases page](https://github.com/shantanugoel/skillmeister/releases), put it
+in your `PATH`, and run `skillmeister init`.
+
+To build from source, you need Go 1.27 or newer and git. You do not need a
+network.
+
+```sh
+git clone git@github.com:shantanugoel/skillmeister.git
+cd skillmeister
+scripts/install.sh
+```
+
+The script builds the binary from `vendor/` into `~/.local/bin` (`BIN_DIR`
+changes the place), then runs `skillmeister init` for this clone, so the clone
+is your library. It stops before it writes anything if a shim path holds
+something that is not a skillmeister shim.
+
+Make sure the binary is in your `PATH`.
+
+To add or update an npx pack, run `npm ci` in the library first. This installs
+the pinned `skills` CLI.
 
 ## Claude Code permissions
 
@@ -64,16 +79,16 @@ path of the binary and `LIB` with the absolute path of the library.
 An absolute path in a `Read` rule starts with two slashes, so `Read(/LIB/**)`
 has the one slash that `LIB` brings and one more. For example, with the binary
 at `/home/me/.local/bin/skillmeister` and the library at
-`/home/me/dev/skillmeister`:
+`/home/me/.skillmeister`:
 
 ```json
 {
   "permissions": {
     "allow": [
       "Bash(/home/me/.local/bin/skillmeister:*)",
-      "Read(//home/me/dev/skillmeister/**)"
+      "Read(//home/me/.skillmeister/**)"
     ],
-    "additionalDirectories": ["/home/me/dev/skillmeister"]
+    "additionalDirectories": ["/home/me/.skillmeister"]
   }
 }
 ```
@@ -104,9 +119,11 @@ skillmeister sync    [--frozen]
 skillmeister update  [--check|--apply] [--yes] [pack]
 skillmeister trust   --level trusted|pinned [--accept] [--yes] <pack>
 skillmeister doctor  [--security] [--json]
+skillmeister init    [--bin P] [--no-shim]
 ```
 
-Global flags go before the command: `--library PATH` (or `SKILLMEISTER_ROOT`),
+Global flags go before the command: `--library PATH` (or `SKILLMEISTER_ROOT`;
+the default is `~/.skillmeister`),
 `--profile P` (or `SKILLMEISTER_PROFILE`), `--no-color`.
 
 Exit codes: `0` success, `1` usage error, `2` drift or integrity failure, `3`

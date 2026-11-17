@@ -13,7 +13,8 @@ measured".
   `community/commit-writer`, and `community/csv-charts`.
 - Lister: `spike/lister.sh`. It is a throwaway script. It always prints
   `trust: trusted` and has no `show` command. The test measures routing only.
-- Shim: `shim/skillmeister/SKILL.md.tmpl`. `spike/render_shim.sh` renders it
+- Shim: `internal/harness/SKILL.md.tmpl` (it was `shim/skillmeister/SKILL.md.tmpl`
+  when the spike ran). `spike/render_shim.sh` renders it
   with absolute paths. This is the real template.
 - Claude Code: `spike/run_claude.sh soft|hard WORKDIR OUTDIR`. It renders the
   shim into `WORKDIR/.claude/skills/` (project scope), runs each prompt with

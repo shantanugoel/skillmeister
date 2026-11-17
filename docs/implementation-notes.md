@@ -7,9 +7,18 @@ architecture. Read it with [plan.md](plan.md) and [architecture.md](architecture
 
 - `add --path D` names the subtree of a git clone that holds the skills. The
   architecture needed it: `sync` must know the subtree when it restores a pack.
-- `render-shim [--bin P] [--memory]` prints the shim or the memory line.
-  `scripts/install.sh` uses it, so one renderer makes the file that `doctor`
-  checks.
+- `init [--bin P] [--no-shim]` creates a library (when none exists), writes the
+  shim into both discovery paths, and adds the memory lines. It never overwrites
+  an existing library file, and it refuses, before it writes anything, to
+  replace a directory that skillmeister did not create. Under Homebrew it writes
+  the stable `<prefix>/bin` path into the shim, not the versioned Cellar path.
+  `scripts/install.sh` runs it, so one piece of code makes the files that
+  `doctor` checks.
+- The shim template is embedded in the binary (`internal/harness/SKILL.md.tmpl`).
+  A library holds no copy, so a binary from Homebrew or a release works alone.
+- The default library is `~/.skillmeister`. The older default,
+  `~/dev/skillmeister`, still works when it holds a library and the new default
+  does not. A command that runs with no library prints a hint to run `init`.
 - `internal/doctor`, `internal/pack`, and `internal/security` are new packages.
   The plan put doctor in `internal/harness`. The harness package holds the shim
   and memory checks, and `doctor` runs them when `HOME` is set.

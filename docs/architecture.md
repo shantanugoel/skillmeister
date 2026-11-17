@@ -28,7 +28,7 @@ agent performs on itself, guided by the shim.
 ## Repo layout
 
 ```text
-~/dev/skillmeister/
+~/.skillmeister/        # the default root; any git repo with a skillmeister.yaml works
   skillmeister.yaml            # manifest: packs, enablement, profiles, trust
   skillmeister.lock.json       # router lockfile: commits + tree hashes
   skills-lock.json             # npx only; merged from the `skills` CLI at add time
@@ -38,7 +38,6 @@ agent performs on itself, guided by the shim.
     <pack>/<skill>/SKILL.md
   .import/                     # transient npx staging, gitignored
   .removed/                    # quarantined packs from `remove`, gitignored
-  shim/skillmeister/SKILL.md.tmpl
   cmd/skillmeister/            # the router binary
   internal/                    # manifest, library, search, lock, harness
   vendor/                      # go mod vendor; makes install build offline
@@ -276,7 +275,7 @@ skillmeister sync    [--frozen]
 
 skillmeister trust  --level trusted|pinned [--accept] [--yes] <pack>
 skillmeister doctor [--security] [--json]
-skillmeister render-shim [--bin P] [--memory]    # install helper: prints the shim
+skillmeister init   [--bin P] [--no-shim]        # create a library, install the shim
 
 skillmeister --version
 
@@ -315,7 +314,7 @@ version bump, and `doctor` reports the binary version alongside it.
 
 | Topic | Decision |
 |---|---|
-| Library root | `--library` > `SKILLMEISTER_ROOT` > `~/dev/skillmeister`; must contain `skillmeister.yaml` |
+| Library root | `--library` > `SKILLMEISTER_ROOT` > `~/.skillmeister`; must contain `skillmeister.yaml`. When `~/.skillmeister` has no library and `~/dev/skillmeister` has one, the older path is used. No config file stores the choice. |
 | Profile | `--profile` (global) > `SKILLMEISTER_PROFILE` > all packs; unknown profile is an error; `--pack` intersects |
 | Flags | before positionals; `--` ends flag parsing; a test runs the shim's exact line |
 | `--all` | include disabled packs and skills |
@@ -380,7 +379,7 @@ skillmeister find --json --limit 8 "<query>"
   `@skillmeister`. Phase 0 picks one variant for both harnesses.
 - **Memory line** in both `~/.claude/CLAUDE.md` and `~/.config/opencode/AGENTS.md`,
   written with the library root that install used:
-  "Skill library at `~/dev/skillmeister`, searched with `skillmeister`. Use it
+  "Skill library at `~/.skillmeister`, searched with `skillmeister`. Use it
   only when I explicitly ask for a skill."
 - **Claude Code permissions**: an additional directory for the library plus read
   and `skillmeister` command allowances, with the exact settings file documented
