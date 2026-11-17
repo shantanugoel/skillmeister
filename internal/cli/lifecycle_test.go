@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/shantanugoel/skillmeister/internal/lock"
 )
@@ -605,7 +606,10 @@ func TestConcurrentWritersKeepManifestValid(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			skill := fmt.Sprintf("own/s%d", i)
-			for attempt := 0; attempt < 200; attempt++ {
+			// Retry with a short pause until a deadline, so a slow CI host
+			// cannot use up the attempts before the lock holder finishes.
+			deadline := time.Now().Add(20 * time.Second)
+			for time.Now().Before(deadline) {
 				r := run(t, dir, "disable", skill)
 				if r.code == 0 {
 					mu.Lock()
@@ -617,6 +621,7 @@ func TestConcurrentWritersKeepManifestValid(t *testing.T) {
 					t.Errorf("%s: exit %d %s", skill, r.code, r.err)
 					return
 				}
+				time.Sleep(2 * time.Millisecond)
 			}
 			t.Errorf("%s never got the lock", skill)
 		}()
