@@ -1,0 +1,8 @@
+natural|Find me a skill for converting a PDF into Markdown.
+natural|I need to write a good git commit message. Is there a skill in my library for that?
+natural|Look in my skills for something that can turn a CSV into a chart.
+natural|Search my skill library for anything about commit messages, then use it for my staged changes.
+explicit|Use the skillmeister skill to look up a skill about PDF text extraction.
+explicit|Please check my skill library for a skill about charts from CSV data.
+control|What is the capital of Australia? Answer in one word.
+control|Write a haiku about autumn.

@@ -1,0 +1,13 @@
+version: 1
+packs:
+  own:
+    fetch: local
+    path: skills
+    trust: trusted
+    enabled: true
+  community:
+    fetch: git
+    url: https://example.com/community-skills
+    ref: v1.0.0
+    trust: trusted
+    enabled: true
