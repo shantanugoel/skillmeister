@@ -33,6 +33,16 @@ Make sure `~/.local/bin` is in your `PATH`.
 To add or update an npx pack, run `npm ci` in the library first. This installs
 the pinned `skills` CLI.
 
+## Homebrew
+
+The binary is also in a Homebrew tap. It does not render the shim for you. For
+that, use `scripts/install.sh` from a clone.
+
+```sh
+brew tap shantanugoel/tap
+brew install skillmeister
+```
+
 ## Claude Code permissions
 
 Claude Code asks before it runs a command or reads a file outside the project.
