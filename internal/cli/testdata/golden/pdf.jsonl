@@ -1,0 +1,2 @@
+{"id":"own/pdf-tools","name":"pdf-tools","pack":"own","description":"Extract text and tables from PDF files and convert them to Markdown.","path":"<ROOT>/skills/pdf-tools/SKILL.md","trust":"trusted","score":80,"warnings":[]}
+{"id":"anthropic/pdf-forms","name":"pdf-forms","pack":"anthropic","description":"Fill in and flatten PDF forms with field mapping.","path":"<ROOT>/packs/anthropic/pdf-forms/SKILL.md","trust":"pinned","score":80,"warnings":[]}

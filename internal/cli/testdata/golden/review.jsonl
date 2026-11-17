@@ -1,0 +1,3 @@
+{"id":"own/code-review","name":"code-review","pack":"own","description":"Review a code change for bugs, style problems, and missing tests.","path":"<ROOT>/skills/code-review/SKILL.md","trust":"trusted","score":60,"warnings":["allowed-tools is not enforced in a routed skill"]}
+{"id":"own/sql-review","name":"sql-review","pack":"own","description":"Review a SQL query for correctness, index use, and unsafe statements.","path":"<ROOT>/skills/sql-review/SKILL.md","trust":"trusted","score":60,"warnings":[]}
+{"id":"community/terraform-plan-review","name":"terraform-plan-review","pack":"community","description":"Review a terraform plan for destructive changes and drift.","path":"<ROOT>/packs/community/terraform-plan-review/SKILL.md","trust":"pinned","score":60,"warnings":[]}
