@@ -1,8 +1,12 @@
 // Package search ranks skills lexically.
 //
 // Tiers and scores: exact name 100, name prefix 80, name tokens 60,
-// description 40, body 20. Every query token must appear in the field of the
-// winning tier.
+// description 40, body 20. Every query token must match a token of the field
+// that wins the tier. Two tokens match when they are equal, when the field
+// token extends the query, or when the query extends the field token by at most
+// two characters. Both tokens need at least four characters. The prefix rules
+// let "hyperframe" find "hyperframes", "hyperframes" find "hyperframe", and
+// "access" find "accessibility".
 package search
 
 import (
@@ -89,7 +93,7 @@ func scoreHead(r *library.Record, query string, qtok []string) int {
 		return 0
 	}
 	name := Tokenize(r.Name)
-	if len(qtok) <= len(name) && equal(name[:len(qtok)], qtok) {
+	if matchesHead(name, qtok) {
 		return ScorePrefix
 	}
 	if containsAll(name, qtok) {
@@ -101,26 +105,49 @@ func scoreHead(r *library.Record, query string, qtok []string) int {
 	return 0
 }
 
-func equal(a, b []string) bool {
-	if len(a) != len(b) {
+// matchesHead reports whether the query tokens match the leading name tokens.
+func matchesHead(name, want []string) bool {
+	if len(want) > len(name) {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
+	for i, w := range want {
+		if !sameWord(name[i], w) {
 			return false
 		}
 	}
 	return true
 }
 
-// containsAll reports whether every want token is in have.
-func containsAll(have, want []string) bool {
-	set := make(map[string]struct{}, len(have))
-	for _, t := range have {
-		set[t] = struct{}{}
+// sameWord reports whether a field token and a query token name the same word.
+// Short tokens must match exactly. A field token may extend the query, so
+// "access" matches "accessibility". A query may extend the field token only by
+// a short suffix of at most two characters: a plural query still finds a
+// singular skill ("hyperframes" finds "hyperframe"), but "database" does not
+// match the broader token "data".
+func sameWord(field, query string) bool {
+	if field == query {
+		return true
 	}
-	for _, t := range want {
-		if _, ok := set[t]; !ok {
+	if len(field) < 4 || len(query) < 4 {
+		return false
+	}
+	if strings.HasPrefix(field, query) {
+		return true
+	}
+	return len(query)-len(field) <= 2 && strings.HasPrefix(query, field)
+}
+
+// containsAll reports whether every want token matches a token in have.
+func containsAll(have, want []string) bool {
+	for _, w := range want {
+		found := false
+		for _, h := range have {
+			if sameWord(h, w) {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return false
 		}
 	}

@@ -81,6 +81,81 @@ func TestPrefixNeedsLeadingTokens(t *testing.T) {
 	}
 }
 
+func TestWordPrefixes(t *testing.T) {
+	recs := []*library.Record{
+		rec("own", "hyperframes", "Make motion graphics.", "", manifest.Trusted),
+		rec("own", "hyperframe", "The exact name.", "", manifest.Trusted),
+		rec("own", "notes", "Covers hyperframes workflows.", "", manifest.Trusted),
+		rec("own", "misc", "Other things.", "A hyperframes example.", manifest.Trusted),
+	}
+	// The singular query finds the plural skill, but the exact name still wins.
+	for _, q := range []string{"hyperframe", "hyperframes"} {
+		got := ids(Find(recs, q, 0))
+		want := "own/hyperframe=100 own/hyperframes=80 own/notes=40 own/misc=20"
+		if q == "hyperframes" {
+			want = "own/hyperframes=100 own/hyperframe=80 own/notes=40 own/misc=20"
+		}
+		if got != want {
+			t.Errorf("query %q: got  %s\nwant %s", q, got, want)
+		}
+	}
+}
+
+func TestWordPrefixesNeedEveryToken(t *testing.T) {
+	recs := []*library.Record{rec("own", "slides-deck", "d", "", manifest.Trusted)}
+	for _, tc := range []struct{ query, want string }{
+		{"slide deck", "own/slides-deck=80"},
+		{"slides decks", "own/slides-deck=80"},
+		{"slide deck zzz", ""},
+	} {
+		if got := ids(Find(recs, tc.query, 0)); got != tc.want {
+			t.Errorf("query %q: got %q, want %q", tc.query, got, tc.want)
+		}
+	}
+}
+
+func TestWordPrefixBoundaries(t *testing.T) {
+	one := func(name string) []*library.Record {
+		return []*library.Record{rec("own", name, "d", "", manifest.Trusted)}
+	}
+	for _, tc := range []struct{ label, name, query, want string }{
+		{"four-character query", "testing-tools", "test", "own/testing-tools=80"},
+		{"forward long extension", "accessibility-audit", "access", "own/accessibility-audit=80"},
+		{"reverse one-char suffix", "hyperframe", "hyperframes", "own/hyperframe=80"},
+		{"reverse two-char suffix", "watch", "watches", "own/watch=80"},
+		{"reverse three-char suffix", "watch", "watching", ""},
+		{"non-leading name token", "git-worktrees", "worktree", "own/git-worktrees=60"},
+		{"short field token", "cat", "catalog", ""},
+		{"long reverse prefix", "data-tools", "database", ""},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			if got := ids(Find(one(tc.name), tc.query, 0)); got != tc.want {
+				t.Errorf("query %q against %q: got %q, want %q", tc.query, tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLongQueryDoesNotOutrankExactToken(t *testing.T) {
+	recs := []*library.Record{
+		rec("own", "data-tools", "d", "", manifest.Trusted),
+		rec("own", "sql-database", "d", "", manifest.Trusted),
+	}
+	if got := ids(Find(recs, "database", 0)); got != "own/sql-database=60" {
+		t.Errorf("got %q, want own/sql-database=60", got)
+	}
+}
+
+func TestShortTokensMatchExactly(t *testing.T) {
+	recs := []*library.Record{rec("own", "catalog", "A pdf index.", "", manifest.Trusted)}
+	if got := ids(Find(recs, "cat", 0)); got != "" {
+		t.Errorf("query %q: got %q, want no match", "cat", got)
+	}
+	if got := ids(Find(recs, "pdf", 0)); got != "own/catalog=40" {
+		t.Errorf("query %q: got %q, want own/catalog=40", "pdf", got)
+	}
+}
+
 func TestTieBreaks(t *testing.T) {
 	recs := []*library.Record{
 		rec("zeta", "tool-x", "d", "", manifest.Untrusted),

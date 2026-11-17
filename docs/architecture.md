@@ -196,8 +196,11 @@ keep scanning. `show`, `add`, and `doctor` report those errors; only `add` refus
 the pack.
 
 The ranking tiers and scores are in [plan.md](plan.md), Phase 1. Every query
-token must match, so the agent sends keywords, not the full sentence of the
-user.
+token must match a token of the field that wins the tier, either exactly or by a
+word prefix. A field token may extend the query (`access` matches
+`accessibility`), and a query token may extend a field token by at most two
+characters (`hyperframes` matches `hyperframe`). Both tokens need at least four
+characters. The agent still sends keywords, not the full sentence of the user.
 
 Body matching reads only the first 8 KB of a skill body. The CLI skips body
 matching when the higher tiers already fill `--limit` results.
@@ -377,7 +380,9 @@ skillmeister find --json --limit 8 "<query>"
 ```
 
 - Send 1 to 3 keywords as the query, not a sentence. Every query token must
-  match.
+  match a whole word or a word prefix of at least four characters. A field word
+  may extend the keyword, and a keyword may extend a field word by at most two
+  characters.
 - Read `id`, `name`, `description`, `path`, `trust`, `score`, `warnings`; ignore
   the rest.
 - Zero records: try one time more with fewer or different keywords. If there

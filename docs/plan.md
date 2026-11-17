@@ -83,10 +83,15 @@ The product is search quality; build that before any lifecycle machinery.
   100 for an exact name, 80 prefix, 60 name tokens, 40 description, 20 body only;
   ties break `own` first, then trust order, then name. Exact name is
   `EqualFold` against the record name or full ID, before tokenization; tokenize by
-  lowercasing and splitting on `[^a-z0-9]+`; every query token must appear in the
-  winning tier's field; "prefix" means that the query tokens are the first
-  tokens of the name. Body matching reads at most the first 8 KB. Because every
-  token must match, the shim tells the agent to send keywords, not a sentence.
+  lowercasing and splitting on `[^a-z0-9]+`; every query token must match a
+  token of the winning tier's field. Two tokens match when they are equal, when
+  the field token extends the query, or when the query extends the field token
+  by at most two characters; both tokens must have at least four characters.
+  Thus `hyperframe` matches `hyperframes`, `hyperframes` matches `hyperframe`,
+  and `access` matches `accessibility`. "Prefix" means that the query tokens
+  match the first tokens of the name. Body matching reads at most the first
+  8 KB. Because every token must match, the shim tells the agent to send
+  keywords, not a sentence.
 - Profiles and `--pack` filtering (a predicate over the scan).
 - `find`, `list`, `show` (including `--summary`), `path`; `--json` on `find` and
   `list` only.
