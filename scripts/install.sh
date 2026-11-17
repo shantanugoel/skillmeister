@@ -56,7 +56,7 @@ trap - EXIT
 printf 'installed %s (%s)\n' "$bin" "$ver"
 
 # 4. Render the shim into both discovery paths.
-#    `init` does both. It refuses again to clobber, and it leaves this
+#    `init` does this. It refuses again to clobber, and it leaves this
 #    library's own files as they are.
 "$bin" --library "$here" init --bin "$bin"
 
