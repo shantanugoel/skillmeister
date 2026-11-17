@@ -134,9 +134,10 @@ func commands() []command {
 		{"enable", "enable <pack|pack/skill>", cmdEnable},
 		{"disable", "disable <pack|pack/skill>", cmdDisable},
 		{"remove", "remove [--purge] <pack>", cmdRemove},
+		{"update", "update [--check|--apply] [--yes] [pack]", cmdUpdate},
 		{"sync", "sync [--frozen]", cmdSync},
 		{"trust", "trust --level trusted|pinned [--accept] [--yes] <pack>", cmdTrust},
-		{"doctor", "doctor [--json]", cmdDoctor},
+		{"doctor", "doctor [--security] [--json]", cmdDoctor},
 		{"render-shim", "render-shim [--bin P] [--memory]   (used by scripts/install.sh)", cmdRenderShim},
 	}
 }

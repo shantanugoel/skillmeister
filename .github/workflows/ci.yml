@@ -4,7 +4,10 @@ on:
   pull_request:
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -12,3 +15,24 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./... ./testdata/gen ./testdata/gen/cmd
       - run: go test ./...
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: GOFLAGS=-mod=mod go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./... ./testdata/gen ./testdata/gen/cmd
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [darwin/arm64, darwin/amd64, linux/amd64, linux/arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - env:
+          TARGET: ${{ matrix.target }}
+        run: GOOS=${TARGET%/*} GOARCH=${TARGET#*/} go build -o /dev/null ./cmd/skillmeister

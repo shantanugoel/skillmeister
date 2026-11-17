@@ -440,8 +440,9 @@ Transitions:
 fetched pack disables drift detection, so the command asks for confirmation. The
 lock entry stays, so a later change back to `pinned` can verify the hash.
 
-Trust is a UX and ranking aid, not a sandbox. `doctor --security` exits `2` when
-it finds any high-severity pattern: bundled scripts, `curl | sh`, `sudo`, `eval`,
+Trust is a UX and ranking aid, not a sandbox. A hit in a pack that is declared
+`trusted` is reported as a warning, because the user accepted that pack. `doctor
+--security` exits `2` when it finds any high-severity pattern in another pack: bundled scripts, `curl | sh`, `sudo`, `eval`,
 base64 blobs, secret paths, broad `allowed-tools`, `!` lines, and `../` escapes.
 Heuristics, not proof.
 

@@ -91,8 +91,9 @@ skillmeister enable  <pack|pack/skill>
 skillmeister disable <pack|pack/skill>
 skillmeister remove  [--purge] <pack>
 skillmeister sync    [--frozen]
+skillmeister update  [--check|--apply] [--yes] [pack]
 skillmeister trust   --level trusted|pinned [--accept] [--yes] <pack>
-skillmeister doctor  [--json]
+skillmeister doctor  [--security] [--json]
 ```
 
 Global flags go before the command: `--library PATH` (or `SKILLMEISTER_ROOT`),
@@ -101,13 +102,24 @@ Global flags go before the command: `--library PATH` (or `SKILLMEISTER_ROOT`),
 Exit codes: `0` success, `1` usage error, `2` drift or integrity failure, `3`
 I/O error, lock contention, or subprocess failure.
 
-`add`, `remove`, and `sync` change files in the library. They never commit.
+`update --check` reads from the network (`git ls-remote`) and writes nothing.
+`update --apply` shows a diff summary, asks for confirmation (or needs `--yes`
+when stdin is not a terminal), and then swaps the pack. It also restores the
+upstream content of a modified pinned pack.
+
+`doctor --security` adds lexical heuristics: bundled scripts, `curl | sh`,
+`sudo`, `eval`, base64 blobs, secret paths, broad `allowed-tools`, `!` lines,
+and `../` paths. A hit in a pack that you declared `trusted` is a warning. A hit
+in any other pack is high severity and makes the command exit `2`. The rules
+are heuristics, not proof.
+
+`add`, `remove`, `update --apply`, and `sync` change files in the library. They never commit.
 Review the diff with `git status`, then commit it yourself.
 
 ## Test
 
 ```sh
-go vet ./... ./testdata/gen
+go vet ./... ./testdata/gen ./testdata/gen/cmd
 go test ./...
 ```
 

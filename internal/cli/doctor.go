@@ -7,11 +7,13 @@ import (
 
 	"github.com/shantanugoel/skillmeister/internal/doctor"
 	"github.com/shantanugoel/skillmeister/internal/harness"
+	"github.com/shantanugoel/skillmeister/internal/security"
 )
 
 func cmdDoctor(g *globals, args []string) error {
 	fs := newFlagSet(g, "doctor")
 	asJSON := fs.Bool("json", false, "print one JSON object (best effort, not versioned)")
+	sec := fs.Bool("security", false, "also run the security heuristics; exit 2 on a high-severity hit")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -28,6 +30,21 @@ func cmdDoctor(g *globals, args []string) error {
 		return ioErr(err)
 	}
 	rep.Findings = append(rep.Findings, harness.Check(g.env.Getenv("HOME"), lib)...)
+	if *sec {
+		hits, err := security.Scan(lib)
+		if err != nil {
+			return ioErr(err)
+		}
+		for _, h := range hits {
+			sev := doctor.Error
+			if h.Severity != security.High {
+				sev = doctor.Warn
+			}
+			rep.Findings = append(rep.Findings, doctor.Finding{
+				Severity: sev, Code: "sec-" + h.Rule, Pack: h.Pack, Subject: h.Skill, Message: h.String(),
+			})
+		}
+	}
 	if rep.Findings == nil {
 		rep.Findings = []doctor.Finding{}
 	}

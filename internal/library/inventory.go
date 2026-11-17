@@ -69,7 +69,7 @@ func (l *Library) Inventory(r *Record) (files []File, truncated bool, err error)
 				out = append(out, File{
 					Path:   p,
 					Size:   info.Size(),
-					Script: isScript(p, info.Mode()),
+					Script: IsScript(p, info.Mode()),
 				})
 			}
 		}
@@ -82,7 +82,8 @@ func (l *Library) Inventory(r *Record) (files []File, truncated bool, err error)
 	return out, truncated, nil
 }
 
-func isScript(p string, mode fs.FileMode) bool {
+// IsScript reports whether a file path and mode look like a script.
+func IsScript(p string, mode fs.FileMode) bool {
 	if mode&0o111 != 0 {
 		return true
 	}
