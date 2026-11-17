@@ -28,6 +28,8 @@ const (
 	RuleBroadTools   = "broad-allowed-tools"
 	RuleBang         = "bang-command"
 	RuleParentEscape = "parent-path"
+	// RuleIncomplete marks a skill that the scan could not read in full.
+	RuleIncomplete = "incomplete-scan"
 )
 
 // Severity of a hit.
@@ -58,13 +60,14 @@ type lineRule struct {
 }
 
 var lineRules = []lineRule{
-	{RuleCurlPipe, regexp.MustCompile(`(?i)\b(curl|wget)\b[^\n|]*\|\s*(sudo\s+)?(ba|z|da)?sh\b`), "downloads and runs code in one step"},
+	{RuleCurlPipe, regexp.MustCompile(`(?i)\b(curl|wget)\b[^\n|]*\|\s*(sudo(\s+-\S+)*\s+)?(env\s+)?(/\S*/)?(ba|z|da|k)?sh\b`), "downloads and runs code in one step"},
+	{RuleCurlPipe, regexp.MustCompile(`(?i)\b(ba|z|da|k)?sh\s+(-c\s+["']?\$\(|<\()\s*(curl|wget)\b`), "downloads and runs code in one step"},
 	{RuleSudo, regexp.MustCompile(`(^|[^A-Za-z0-9_-])sudo\s`), "asks for root"},
 	{RuleEval, regexp.MustCompile(`(^|[^A-Za-z0-9_.-])eval[\s(]+["'$` + "`" + `A-Za-z(]`), "runs a constructed string"},
-	{RuleBase64, regexp.MustCompile(`base64\s+(-d|-D|--decode)\b|[A-Za-z0-9+/]{160,}={0,2}`), "decodes or holds an opaque blob"},
+	{RuleBase64, regexp.MustCompile(`base64\s+(-\w*[dD]\w*|--decode)|[A-Za-z0-9+/]{160,}={0,2}`), "decodes or holds an opaque blob"},
 	{RuleSecretPath, regexp.MustCompile(`(?i)(\.ssh/|\.aws/|\.gnupg/|\.kube/config|\.docker/config|id_rsa|id_ed25519|/etc/shadow|\.netrc|\.npmrc|\.pypirc|credentials\.json|(^|[\s'"/])\.env\b|keychain)`), "names a place where secrets live"},
 	{RuleBang, regexp.MustCompile("(!`|^\\s*```!)"), "native command injection syntax"},
-	{RuleParentEscape, regexp.MustCompile(`(^|[\s"'` + "`" + `(=<])\.\./`), "reads outside the skill directory"},
+	{RuleParentEscape, regexp.MustCompile(`(^|[\s"'` + "`" + `(=<}/])\.\./`), "reads outside the skill directory"},
 }
 
 const maxScanFile = 1 << 20
@@ -75,7 +78,12 @@ func Scan(lib *library.Library) ([]Hit, error) {
 	m := lib.Manifest
 	for _, name := range m.PackNames() {
 		p := m.Packs[name]
-		recs, _ := lib.ScanPack(p, true)
+		recs, warns := lib.ScanPack(p, true)
+		// A skill that cannot be parsed or read is a skill that the scan cannot
+		// vouch for. Report it instead of a silent zero.
+		for _, w := range warns {
+			hits = append(hits, Hit{Severity: sevFor(p), Rule: RuleIncomplete, Pack: p.Name, Skill: p.Name, File: "-", Detail: w})
+		}
 		for _, r := range recs {
 			h, err := scanSkill(lib, p, r)
 			if err != nil {
@@ -97,18 +105,25 @@ func Scan(lib *library.Library) ([]Hit, error) {
 	return hits, nil
 }
 
-func scanSkill(lib *library.Library, p *manifest.Pack, r *library.Record) ([]Hit, error) {
-	sev := High
+func sevFor(p *manifest.Pack) Severity {
 	if p.Trust == manifest.Trusted {
-		sev = Warn
+		return Warn
 	}
+	return High
+}
+
+func scanSkill(lib *library.Library, p *manifest.Pack, r *library.Record) ([]Hit, error) {
+	sev := sevFor(p)
 	add := func(hits *[]Hit, rule, file string, line int, detail string) {
 		*hits = append(*hits, Hit{Severity: sev, Rule: rule, Pack: p.Name, Skill: r.ID, File: file, Line: line, Detail: detail})
 	}
 	var hits []Hit
-	files, _, err := lib.Inventory(r)
+	files, truncated, err := lib.Inventory(r)
 	if err != nil {
 		return nil, err
+	}
+	if truncated {
+		add(&hits, RuleIncomplete, "-", 0, "the skill has too many files; some were not scanned")
 	}
 	for _, f := range files {
 		if f.Symlink {
@@ -118,6 +133,7 @@ func scanSkill(lib *library.Library, p *manifest.Pack, r *library.Record) ([]Hit
 			add(&hits, RuleScript, f.Path, 0, "the skill bundles a script")
 		}
 		if f.Size > maxScanFile {
+			add(&hits, RuleIncomplete, f.Path, 0, "the file is larger than 1 MB and was not scanned")
 			continue
 		}
 		data, err := lib.ReadFileBounded(path.Join(r.Dir, f.Path))
@@ -166,9 +182,16 @@ func broadTools(v any) bool {
 		}
 	}
 	for _, it := range items {
-		switch strings.TrimSpace(it) {
-		case "*", "Bash", "Bash(*)", "Bash(*:*)":
+		it = strings.ToLower(strings.TrimSpace(it))
+		switch it {
+		case "*", "bash", "bash(*)", "bash(*:*)":
 			return true
+		}
+		// A grant of an interpreter or a shell is a grant of everything.
+		for _, interp := range []string{"bash", "sh", "zsh", "python", "python3", "node", "perl", "ruby", "env", "sudo", "eval"} {
+			if strings.HasPrefix(it, "bash("+interp+":") || strings.HasPrefix(it, "bash("+interp+" ") {
+				return true
+			}
 		}
 	}
 	return false

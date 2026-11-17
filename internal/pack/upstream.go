@@ -8,7 +8,9 @@ import (
 	"github.com/shantanugoel/skillmeister/internal/manifest"
 )
 
-var commitishRE = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
+// fullSHARE matches a full commit hash. A shorter hex string can be a branch or
+// a tag name, so it goes to the upstream like any other ref.
+var fullSHARE = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 
 // UpstreamURL returns the git URL that serves a fetched pack, or an error when
 // the pack has none that skillmeister can query.
@@ -42,7 +44,7 @@ type Latest struct {
 // LatestCommit asks the upstream for the commit that the pack ref points to
 // now. It only reads from the network.
 func LatestCommit(p *manifest.Pack) (*Latest, error) {
-	if commitishRE.MatchString(p.Ref) {
+	if fullSHARE.MatchString(p.Ref) {
 		return &Latest{Commit: p.Ref, Pinned: true}, nil
 	}
 	url, err := UpstreamURL(p)

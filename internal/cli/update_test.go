@@ -221,3 +221,35 @@ func TestDoctorSecurity(t *testing.T) {
 		t.Errorf("json: %v ok=%v code=%d", err, rep.OK, r.code)
 	}
 }
+
+func TestShortHexRefIsNotACommit(t *testing.T) {
+	dir := newLib(t)
+	url, _ := gitRepo(t, gitSkills())
+	repoDir := strings.TrimPrefix(url, "file://")
+	for _, args := range [][]string{{"branch", "20240101"}, {"tag", "deadbee"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repoDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+	}
+	mustOK(t, run(t, dir, "add", "--as", "dated", "--ref", "20240101", url))
+	r := mustOK(t, run(t, dir, "update", "--check"))
+	if strings.Contains(r.out, "pinned to commit") || !strings.Contains(r.out, "up to date") {
+		t.Errorf("a hex-looking branch must be looked up:\n%s", r.out)
+	}
+}
+
+func TestDiffListsExecutableScriptsWithoutExtension(t *testing.T) {
+	dir := newLib(t)
+	url, _ := gitRepo(t, map[string]string{"skills/a/SKILL.md": skillMD("a", "A.")})
+	mustOK(t, run(t, dir, "add", "--as", "vend", "--ref", "main", url))
+	repoDir := strings.TrimPrefix(url, "file://")
+	write(t, repoDir, "skills/a/bin/tool", "#!/bin/sh\n")
+	os.Chmod(repoDir+"/skills/a/bin/tool", 0o755)
+	repoCommit(t, url, nil)
+	r := mustOK(t, run(t, dir, "update", "--apply", "--yes"))
+	if !strings.Contains(r.out, "scripts that changed (review them): a/bin/tool") {
+		t.Errorf("diff:\n%s", r.out)
+	}
+}

@@ -21,6 +21,8 @@ type Diff struct {
 	Added         []string
 	Removed       []string
 	Changed       []string
+	// exec holds the paths that have an executable bit in either tree.
+	exec map[string]bool
 }
 
 // Empty reports whether the trees hold the same files.
@@ -31,7 +33,7 @@ func (d *Diff) Scripts() []string {
 	var out []string
 	for _, group := range [][]string{d.Added, d.Changed, d.Removed} {
 		for _, p := range group {
-			if i := strings.IndexByte(p, '/'); i > 0 && isScriptPath(p[i+1:]) {
+			if i := strings.IndexByte(p, '/'); i > 0 && isScriptPath(p[i+1:], d.exec[p]) {
 				out = append(out, p)
 			}
 		}
@@ -40,8 +42,12 @@ func (d *Diff) Scripts() []string {
 	return out
 }
 
-func isScriptPath(rel string) bool {
-	return library.IsScript(rel, 0)
+func isScriptPath(rel string, exec bool) bool {
+	var mode fs.FileMode
+	if exec {
+		mode = 0o755
+	}
+	return library.IsScript(rel, mode)
 }
 
 // DiffTrees compares two directories inside the root. A missing oldDir counts
@@ -55,7 +61,15 @@ func DiffTrees(root *os.Root, oldDir, newDir string) (*Diff, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Diff{}
+	d := &Diff{exec: map[string]bool{}}
+	for _, m := range []map[string]string{oldFiles, newFiles} {
+		for p, h := range m {
+			// "f:<exec bits in octal>:<sha256>"; 0 means no executable bit.
+			if strings.HasPrefix(h, "f:") && !strings.HasPrefix(h, "f:0:") {
+				d.exec[p] = true
+			}
+		}
+	}
 	skills := func(m map[string]string) map[string]bool {
 		s := map[string]bool{}
 		for p := range m {
