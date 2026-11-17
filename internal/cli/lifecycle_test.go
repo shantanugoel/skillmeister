@@ -700,11 +700,12 @@ func fakeSkills(t *testing.T, lib, commit string, names ...string) string {
 	log := filepath.Join(t.TempDir(), "args.log")
 	var creates, entries []string
 	for _, n := range names {
-		creates = append(creates, fmt.Sprintf("mkdir -p .claude/skills/%s && printf -- '---\\nname: %s\\ndescription: Fake %s.\\n---\\nbody\\n' > .claude/skills/%s/SKILL.md", n, n, n, n))
+		creates = append(creates, fmt.Sprintf("mkdir -p .claude/skills/%[1]s\ncat > .claude/skills/%[1]s/SKILL.md <<'EOF'\n---\nname: %[1]s\ndescription: Fake %[1]s.\n---\nbody\nEOF", n))
 		entries = append(entries, fmt.Sprintf(`"%s":{"source":"o/r","commit":"%s","sourceType":"github","installMode":"copy"}`, n, commit))
 	}
+	// Heredocs keep the JSON free of shell escapes, so dash and bash agree.
 	script := "#!/bin/sh\necho \"$@\" >> '" + log + "'\n" + strings.Join(creates, "\n") +
-		"\nprintf '{\"version\":2,\"skills\":{" + strings.ReplaceAll(strings.Join(entries, ","), `"`, `\"`) + "}}' > skills-lock.json\n"
+		"\ncat > skills-lock.json <<'EOF'\n{\"version\":2,\"skills\":{" + strings.Join(entries, ",") + "}}\nEOF\n"
 	bin := filepath.Join(lib, "node_modules", ".bin", "skills")
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 		t.Fatal(err)
