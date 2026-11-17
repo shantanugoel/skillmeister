@@ -39,7 +39,7 @@ the other skills exist.
 | **pack** | One source of skills — what you would call a plugin. Has one fetch method. |
 | **skill** | A directory with `SKILL.md` plus optional supporting files. |
 | **shim** | The only natively registered skill. Routes to the CLI. |
-| **profile** | A named subset of packs, for scoping a session or project. |
+| **profile** | A named subset of packs, for scoping a session. |
 | **trust** | Provenance label: `trusted`, `pinned`, `modified`, `untrusted`. |
 
 ## What it is not
@@ -85,4 +85,4 @@ rather than pretend they work.
 - "find me a skill for X" produces a real hit in under 100ms, from a library of
   hundreds.
 - Adding a third-party pack is one command and one reviewed diff.
-- `doctor` on a fresh clone on a new machine reports zero drift.
+- `doctor` after install reports zero drift on a clean machine.
