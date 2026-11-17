@@ -23,8 +23,12 @@ const (
 	ExitIO    = 3 // I/O, lock contention, or subprocess failure
 )
 
-// DefaultLibrary is the library root when nothing else selects one.
-const DefaultLibrary = "~/dev/skillmeister"
+// Default library locations. The first one is the default. The second is the
+// older default; it is used only when it holds a library and the first does not.
+const (
+	DefaultLibrary       = "~/.skillmeister"
+	legacyDefaultLibrary = "~/dev/skillmeister"
+)
 
 // Env carries the process environment so tests can run commands in-process.
 type Env struct {
@@ -81,26 +85,60 @@ func (g *globals) color() bool {
 	return g.env.StdoutIsTTY && !g.noColor && g.env.Getenv("NO_COLOR") == ""
 }
 
-// openLibrary resolves the library root and opens it.
-func (g *globals) openLibrary() (*library.Library, error) {
+// libraryDir resolves the library root: --library, then SKILLMEISTER_ROOT,
+// then the default location. A leading ~ is expanded.
+func (g *globals) libraryDir() (string, error) {
 	dir := g.library
 	if dir == "" {
 		dir = g.env.Getenv("SKILLMEISTER_ROOT")
 	}
-	if dir == "" {
-		dir = DefaultLibrary
+	if dir != "" {
+		return g.expandHome(dir)
 	}
-	if dir == "~" || strings.HasPrefix(dir, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, usageErr("cannot expand ~ in %q: %v", dir, err)
+	def, err := g.expandHome(DefaultLibrary)
+	if err != nil {
+		return "", err
+	}
+	if !hasManifest(def) {
+		if legacy, err := g.expandHome(legacyDefaultLibrary); err == nil && hasManifest(legacy) {
+			return legacy, nil
 		}
-		dir = filepath.Join(home, strings.TrimPrefix(dir, "~"))
+	}
+	return def, nil
+}
+
+func hasManifest(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, manifest.FileName))
+	return err == nil
+}
+
+func (g *globals) expandHome(dir string) (string, error) {
+	if dir != "~" && !strings.HasPrefix(dir, "~/") {
+		return dir, nil
+	}
+	home := g.env.Getenv("HOME")
+	if home == "" {
+		var err error
+		if home, err = os.UserHomeDir(); err != nil {
+			return "", usageErr("cannot expand ~ in %q: %v", dir, err)
+		}
+	}
+	return filepath.Join(home, strings.TrimPrefix(dir, "~")), nil
+}
+
+// openLibrary resolves the library root and opens it.
+func (g *globals) openLibrary() (*library.Library, error) {
+	dir, err := g.libraryDir()
+	if err != nil {
+		return nil, err
 	}
 	lib, err := library.Open(dir)
 	if err != nil {
 		var me *manifest.Error
-		if errors.Is(err, library.ErrNotLibrary) || errors.As(err, &me) {
+		if errors.Is(err, library.ErrNotLibrary) {
+			return nil, usageErr("%v\n%s", err, g.noLibraryHint(dir))
+		}
+		if errors.As(err, &me) {
 			return nil, usageErr("%v", err)
 		}
 		return nil, ioErr(err)
@@ -138,7 +176,7 @@ func commands() []command {
 		{"sync", "sync [--frozen]", cmdSync},
 		{"trust", "trust --level trusted|pinned [--accept] [--yes] <pack>", cmdTrust},
 		{"doctor", "doctor [--security] [--json]", cmdDoctor},
-		{"render-shim", "render-shim [--bin P] [--memory]   (used by scripts/install.sh)", cmdRenderShim},
+		{"init", "init [--bin P] [--no-shim]   (create a library, install the shim)", cmdInit},
 	}
 }
 
@@ -167,6 +205,9 @@ func Run(args []string, env Env) int {
 	rest := fs.Args()
 	if len(rest) == 0 {
 		printUsage(env.Stderr)
+		if dir, err := g.libraryDir(); err == nil && !hasManifest(dir) {
+			fmt.Fprintf(env.Stderr, "\nThere is no library yet. %s.\n", g.noLibraryHint(dir))
+		}
 		return ExitUsage
 	}
 	for _, c := range commands() {

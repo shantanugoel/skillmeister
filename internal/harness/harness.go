@@ -2,6 +2,7 @@
 package harness
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,8 +15,11 @@ import (
 	"github.com/shantanugoel/skillmeister/internal/library"
 )
 
-// TemplatePath is the shim template, relative to the library root.
-const TemplatePath = "shim/skillmeister/SKILL.md.tmpl"
+// Template is the shim template. The binary carries it, so a library made by
+// `init` needs no copy and a new binary brings a new template.
+//
+//go:embed SKILL.md.tmpl
+var Template []byte
 
 // Finding codes of the harness checks.
 const (
@@ -23,7 +27,6 @@ const (
 	CodeShimStale     = "shim-stale"
 	CodeShimBinary    = "shim-binary"
 	CodeShimRoot      = "shim-root"
-	CodeShimTemplate  = "shim-template"
 	CodeMemoryMissing = "memory-missing"
 )
 
@@ -77,12 +80,8 @@ func Check(home string, lib *library.Library) []doctor.Finding {
 	add := func(code, subject, format string, args ...any) {
 		out = append(out, doctor.Finding{Severity: doctor.Error, Code: code, Subject: subject, Message: fmt.Sprintf(format, args...)})
 	}
-	const fix = "run scripts/install.sh again"
-	tmpl, err := lib.Root.ReadFile(TemplatePath)
-	if err != nil {
-		add(CodeShimTemplate, TemplatePath, "cannot read the shim template: %v", err)
-		return out
-	}
+	const fix = "run `skillmeister init` again"
+	tmpl := Template
 	for _, p := range ShimPaths(home) {
 		data, err := os.ReadFile(p)
 		if errors.Is(err, fs.ErrNotExist) {

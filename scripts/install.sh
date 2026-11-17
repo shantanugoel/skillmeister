@@ -8,8 +8,7 @@
 #   BIN_DIR       where the binary goes (default: $HOME/.local/bin)
 #
 # Steps: check Go, refuse to clobber, build from vendor/, install the binary,
-# render the shim into the two discovery paths, add the memory lines once, run
-# doctor.
+# run `skillmeister init` (shim and memory lines), run doctor.
 set -eu
 
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
@@ -56,29 +55,10 @@ mv -f "$tmp" "$bin"
 trap - EXIT
 printf 'installed %s (%s)\n' "$bin" "$ver"
 
-# 4. Render the shim into both discovery paths.
-for dir in "$HOME/.agents/skills/skillmeister" "$HOME/.claude/skills/skillmeister"; do
-  mkdir -p "$dir"
-  out=$(mktemp "$dir/.SKILL.md.XXXXXX")
-  "$bin" --library "$here" render-shim --bin "$bin" > "$out" || { rm -f "$out"; die "cannot render the shim"; }
-  mv -f "$out" "$dir/SKILL.md"
-  chmod 644 "$dir/SKILL.md"
-  printf 'rendered %s\n' "$dir/SKILL.md"
-done
+# 4. Render the shim into both discovery paths and add the memory lines, once.
+#    `init` does both. It refuses again to clobber, and it leaves this
+#    library's own files as they are.
+"$bin" --library "$here" init --bin "$bin"
 
-# 5. Memory lines, once.
-line=$("$bin" --library "$here" render-shim --memory)
-for file in "$HOME/.claude/CLAUDE.md" "$HOME/.config/opencode/AGENTS.md"; do
-  mkdir -p "$(dirname "$file")"
-  if [ -f "$file" ] && tr -d '\r' < "$file" | grep -qxF "$line"; then
-    printf 'memory line already in %s\n' "$file"
-    continue
-  fi
-  # Start on a new line when the file does not end with one.
-  if [ -s "$file" ] && [ "$(tail -c 1 "$file" | wc -l)" -eq 0 ]; then printf '\n' >> "$file"; fi
-  printf '%s\n' "$line" >> "$file"
-  printf 'added the memory line to %s\n' "$file"
-done
-
-# 6. Check the result.
+# 5. Check the result.
 "$bin" --library "$here" doctor

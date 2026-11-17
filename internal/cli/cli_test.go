@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shantanugoel/skillmeister/internal/harness"
 	"github.com/shantanugoel/skillmeister/testdata/gen"
 )
 
@@ -514,11 +515,7 @@ func TestShimCommandLine(t *testing.T) {
 	}
 	dir, _ := fixture300(t)
 	bin := buildBinary(t)
-	tmpl, err := os.ReadFile(filepath.Join("..", "..", "shim", "skillmeister", "SKILL.md.tmpl"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	shim := strings.NewReplacer("{{BIN}}", bin, "{{ROOT}}", dir).Replace(string(tmpl))
+	shim := strings.NewReplacer("{{BIN}}", bin, "{{ROOT}}", dir).Replace(string(harness.Template))
 	block := regexp.MustCompile("(?s)```bash\n(.*?)\n```").FindStringSubmatch(shim)
 	if block == nil {
 		t.Fatal("shim has no bash block")

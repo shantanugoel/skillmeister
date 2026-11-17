@@ -10,7 +10,7 @@ import (
 	"github.com/shantanugoel/skillmeister/internal/library"
 )
 
-const tmpl = "---\nname: skillmeister\n---\n```bash\n\"{{BIN}}\" --library \"{{ROOT}}\" find --json --limit 8 -- \"<keywords>\"\n```\n"
+var tmpl = string(Template)
 
 func TestRender(t *testing.T) {
 	out, err := Render([]byte(tmpl), "/bin/sm", "/lib")
@@ -33,7 +33,6 @@ func setup(t *testing.T) (home string, lib *library.Library, bin string) {
 	libDir := filepath.Join(dir, "lib")
 	for p, c := range map[string]string{
 		filepath.Join(libDir, "skillmeister.yaml"):  "version: 1\npacks:\n  own:\n    fetch: local\n    trust: trusted\n",
-		filepath.Join(libDir, TemplatePath):         tmpl,
 		filepath.Join(libDir, "skills", ".gitkeep"): "",
 	} {
 		os.MkdirAll(filepath.Dir(p), 0o755)
@@ -109,5 +108,31 @@ func TestCheck(t *testing.T) {
 				t.Errorf("findings %q lack %s", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestStableBin(t *testing.T) {
+	prefix, _ := filepath.EvalSymlinks(t.TempDir())
+	cellar := filepath.Join(prefix, "Cellar", "skillmeister", "0.2.0", "bin", "skillmeister")
+	os.MkdirAll(filepath.Dir(cellar), 0o755)
+	os.WriteFile(cellar, []byte("x"), 0o755)
+	os.MkdirAll(filepath.Join(prefix, "bin"), 0o755)
+	link := filepath.Join(prefix, "bin", "skillmeister")
+	if err := os.Symlink(cellar, link); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	if got := StableBin(cellar); got != link {
+		t.Errorf("StableBin(cellar) = %s, want %s", got, link)
+	}
+	// A link to something else is not used.
+	os.Remove(link)
+	other := filepath.Join(prefix, "other")
+	os.WriteFile(other, []byte("y"), 0o755)
+	os.Symlink(other, link)
+	if got := StableBin(cellar); got != cellar {
+		t.Errorf("a link to another file was used: %s", got)
+	}
+	if got := StableBin("/usr/local/bin/skillmeister"); got != "/usr/local/bin/skillmeister" {
+		t.Errorf("plain path changed: %s", got)
 	}
 }
