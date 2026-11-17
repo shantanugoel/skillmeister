@@ -3,10 +3,18 @@ on:
   push:
     tags:
       - "v*"
+  # Publishes an existing release to the Homebrew tap again, for example after
+  # the tap job failed. It does not build or release anything.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to put in the Homebrew tap (for example v0.3.0)
+        required: true
 permissions:
   contents: write
 jobs:
   test:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,20 +77,28 @@ jobs:
     # key is the only thing that can write to it. The formula points at the
     # archives just published, so it changes only after they exist.
     needs: release
+    # On a manual run, test, build, and release are skipped, so the tap job
+    # must run when its needs are skipped too.
+    if: ${{ always() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Update the Homebrew formula
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
           TAP_DEPLOY_KEY: ${{ secrets.SKILLMEISTER_TAP_DEPLOY_KEY }}
         run: |
           set -eu
           # A prerelease must not become what `brew install` gives people.
           case "$TAG" in *-*) echo "Skipping the tap for prerelease $TAG."; exit 0 ;; esac
+          case "$TAG" in v[0-9]*) ;; *) echo "Not a release tag: $TAG" >&2; exit 1 ;; esac
           version=${TAG#v}
-          sums=$(mktemp)
+          # gh release download refuses to overwrite a file, so the target
+          # must not exist yet.
+          sums="$(mktemp -d)/SHA256SUMS"
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --output "$sums"
           sha() {
             sum=$(awk -v f="skillmeister_${version}_$1.tar.gz" '$2 == f { print $1 }' "$sums")
