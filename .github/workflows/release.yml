@@ -64,3 +64,51 @@ jobs:
           case "$TAG" in *-*) flags="--prerelease" ;; esac
           gh release create "$TAG" dist/*.tar.gz dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes $flags
+  tap:
+    # The tap is its own repository, shantanugoel/homebrew-tap, and a deploy
+    # key is the only thing that can write to it. The formula points at the
+    # archives just published, so it changes only after they exist.
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update the Homebrew formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          TAP_DEPLOY_KEY: ${{ secrets.SKILLMEISTER_TAP_DEPLOY_KEY }}
+        run: |
+          set -eu
+          # A prerelease must not become what `brew install` gives people.
+          case "$TAG" in *-*) echo "Skipping the tap for prerelease $TAG."; exit 0 ;; esac
+          version=${TAG#v}
+          sums=$(mktemp)
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --output "$sums"
+          sha() {
+            sum=$(awk -v f="skillmeister_${version}_$1.tar.gz" '$2 == f { print $1 }' "$sums")
+            test -n "$sum" || { echo "No checksum for $1." >&2; exit 1; }
+            printf '%s' "$sum"
+          }
+          key=$(mktemp)
+          printf '%s\n' "$TAP_DEPLOY_KEY" >"$key"
+          chmod 600 "$key"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          tap=$(mktemp -d)
+          git clone --depth 1 git@github.com:shantanugoel/homebrew-tap.git "$tap"
+          sed \
+            -e "s/@VERSION@/$version/g" \
+            -e "s/@SHA256_DARWIN_ARM64@/$(sha darwin_arm64)/" \
+            -e "s/@SHA256_DARWIN_AMD64@/$(sha darwin_amd64)/" \
+            -e "s/@SHA256_LINUX_ARM64@/$(sha linux_arm64)/" \
+            -e "s/@SHA256_LINUX_AMD64@/$(sha linux_amd64)/" \
+            packaging/skillmeister.rb.in >"$tap/Formula/skillmeister.rb"
+          if grep -q '@[A-Z0-9_]*@' "$tap/Formula/skillmeister.rb"; then
+            echo "The formula has an unfilled placeholder." >&2
+            exit 1
+          fi
+          grep -q "^  version \"$version\"$" "$tap/Formula/skillmeister.rb"
+          git -C "$tap" -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -am "skillmeister $version"
+          git -C "$tap" push origin HEAD
+          rm -f "$key"
