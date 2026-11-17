@@ -130,6 +130,13 @@ func commands() []command {
 		{"show", "show [--summary] [--raw] [--meta] <id|name>", cmdShow},
 		{"path", "path <id>", cmdPath},
 		{"list", "list [--json] [--pack P] [--all] [--trust T]", cmdList},
+		{"add", "add [--as P] [--fetch local|npx|git] [--ref R] [--path D] [--trust T] [--force] <source>", cmdAdd},
+		{"enable", "enable <pack|pack/skill>", cmdEnable},
+		{"disable", "disable <pack|pack/skill>", cmdDisable},
+		{"remove", "remove [--purge] <pack>", cmdRemove},
+		{"sync", "sync [--frozen]", cmdSync},
+		{"trust", "trust --level trusted|pinned [--accept] [--yes] <pack>", cmdTrust},
+		{"doctor", "doctor [--json]", cmdDoctor},
 	}
 }
 

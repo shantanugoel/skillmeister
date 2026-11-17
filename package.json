@@ -1,0 +1,8 @@
+{
+  "name": "skillmeister-tools",
+  "private": true,
+  "description": "Pins the skills CLI that skillmeister runs for npx packs. Run npm ci before add or update of an npx pack.",
+  "devDependencies": {
+    "skills": "1.9.0"
+  }
+}

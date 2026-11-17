@@ -2,3 +2,4 @@
 .removed/
 .skillmeister.lock
 /bin/
+node_modules/

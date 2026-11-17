@@ -279,6 +279,13 @@ func (l *Library) readBounded(rel string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, MaxSkillFile+1))
 }
 
+// ReadDir lists a directory of the library, sorted by name. Symlinks are
+// listed as entries and never followed.
+func (l *Library) ReadDir(rel string) ([]fs.DirEntry, error) { return l.readDir(rel) }
+
+// ReadFileBounded reads a library file and rejects files over MaxSkillFile.
+func (l *Library) ReadFileBounded(rel string) ([]byte, error) { return l.readBounded(rel) }
+
 // ReadSkill returns the SKILL.md bytes of a record, read through the root.
 func (l *Library) ReadSkill(r *Record) ([]byte, error) {
 	return l.readBounded(path.Join(r.Dir, SkillFile))
