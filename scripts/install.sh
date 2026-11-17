@@ -7,8 +7,9 @@
 #   HOME          where the shims and memory lines go
 #   BIN_DIR       where the binary goes (default: $HOME/.local/bin)
 #
-# Steps: check Go, build from vendor/, install the binary, render the shim into
-# the two discovery paths, add the memory lines once, run doctor.
+# Steps: check Go, refuse to clobber, build from vendor/, install the binary,
+# render the shim into the two discovery paths, add the memory lines once, run
+# doctor.
 set -eu
 
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
@@ -24,12 +25,26 @@ command -v go >/dev/null 2>&1 || die "go is not installed (need Go 1.27 or newer
 export GOTOOLCHAIN=local
 gover=$(go env GOVERSION)
 case "$gover" in
-  go1.[0-9]|go1.[0-9].*|go1.[0-9]rc*|go1.1[0-9]|go1.1[0-9].*|go1.2[0-6]|go1.2[0-6].*|go1.2[0-6]rc*)
+  go1.[0-9]|go1.[0-9][!0-9]*|go1.1[0-9]|go1.1[0-9][!0-9]*|go1.2[0-6]|go1.2[0-6][!0-9]*)
     die "Go 1.27 or newer is required (found $gover)" ;;
 esac
 
-# 2. Build from the vendored tree.
+# 2. Refuse early: never replace a directory that skillmeister did not create.
+#    This runs before anything is written.
+for dir in "$HOME/.agents/skills/skillmeister" "$HOME/.claude/skills/skillmeister"; do
+  if [ -L "$dir" ]; then
+    die "$dir is a symlink; remove it first"
+  fi
+  if [ -e "$dir" ]; then
+    [ -d "$dir" ] && grep -q '^name: skillmeister$' "$dir/SKILL.md" 2>/dev/null ||
+      die "$dir exists and is not a skillmeister shim; move it away first"
+  fi
+done
+
+# 3. Build from the vendored tree.
 mkdir -p "$bin_dir"
+bin_dir=$(cd "$bin_dir" && pwd -P)
+bin="$bin_dir/skillmeister"
 tmp=$(mktemp "$bin_dir/.skillmeister.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 ver=$(git -C "$here" describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -41,17 +56,7 @@ mv -f "$tmp" "$bin"
 trap - EXIT
 printf 'installed %s (%s)\n' "$bin" "$ver"
 
-# 3. Render the shim into both discovery paths. Never replace a directory that
-#    skillmeister did not create.
-for dir in "$HOME/.agents/skills/skillmeister" "$HOME/.claude/skills/skillmeister"; do
-  if [ -L "$dir" ]; then
-    die "$dir is a symlink; remove it first"
-  fi
-  if [ -e "$dir" ]; then
-    [ -d "$dir" ] && grep -q '^name: skillmeister$' "$dir/SKILL.md" 2>/dev/null ||
-      die "$dir exists and is not a skillmeister shim; move it away first"
-  fi
-done
+# 4. Render the shim into both discovery paths.
 for dir in "$HOME/.agents/skills/skillmeister" "$HOME/.claude/skills/skillmeister"; do
   mkdir -p "$dir"
   out=$(mktemp "$dir/.SKILL.md.XXXXXX")
@@ -61,11 +66,11 @@ for dir in "$HOME/.agents/skills/skillmeister" "$HOME/.claude/skills/skillmeiste
   printf 'rendered %s\n' "$dir/SKILL.md"
 done
 
-# 4. Memory lines, once.
+# 5. Memory lines, once.
 line=$("$bin" --library "$here" render-shim --memory)
 for file in "$HOME/.claude/CLAUDE.md" "$HOME/.config/opencode/AGENTS.md"; do
   mkdir -p "$(dirname "$file")"
-  if [ -f "$file" ] && grep -qxF "$line" "$file"; then
+  if [ -f "$file" ] && tr -d '\r' < "$file" | grep -qxF "$line"; then
     printf 'memory line already in %s\n' "$file"
     continue
   fi
@@ -75,5 +80,5 @@ for file in "$HOME/.claude/CLAUDE.md" "$HOME/.config/opencode/AGENTS.md"; do
   printf 'added the memory line to %s\n' "$file"
 done
 
-# 5. Check the result.
+# 6. Check the result.
 "$bin" --library "$here" doctor

@@ -36,24 +36,43 @@ the pinned `skills` CLI.
 ## Claude Code permissions
 
 Claude Code asks before it runs a command or reads a file outside the project.
-Add these rules to `~/.claude/settings.json`. Replace `LIB` with the absolute
-path of the library and `BIN` with the absolute path of the binary. Note the
-double slash in the `Read` rule: it marks an absolute path.
+Add these rules to `~/.claude/settings.json`. Replace `BIN` with the absolute
+path of the binary and `LIB` with the absolute path of the library.
 
 ```json
 {
   "permissions": {
     "allow": [
       "Bash(BIN:*)",
-      "Read(//LIB/**)"
+      "Read(/LIB/**)"
     ],
     "additionalDirectories": ["LIB"]
   }
 }
 ```
 
-For example, `BIN` is `/home/me/.local/bin/skillmeister` and `LIB` is
-`/home/me/dev/skillmeister`. The `Read` rule is then `Read(//home/me/dev/skillmeister/**)`.
+An absolute path in a `Read` rule starts with two slashes, so `Read(/LIB/**)`
+has the one slash that `LIB` brings and one more. For example, with the binary
+at `/home/me/.local/bin/skillmeister` and the library at
+`/home/me/dev/skillmeister`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(/home/me/.local/bin/skillmeister:*)",
+      "Read(//home/me/dev/skillmeister/**)"
+    ],
+    "additionalDirectories": ["/home/me/dev/skillmeister"]
+  }
+}
+```
+
+The shim writes the binary path inside double quotes. The `Bash` rule matches
+that form: the Phase 0 spike (see [docs/phase0.md](docs/phase0.md)) ran the
+quoted command line with this rule and got no permission prompt. The spike
+passed the rules as command line options, not through `settings.json`, so the
+settings file itself is not tested.
 
 Skillmeister does not change this file for you.
 

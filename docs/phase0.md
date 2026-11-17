@@ -82,6 +82,9 @@ runs used the real binary, the real rendered shim, and a generated library of
   `own/pdf-tools`.
 - OpenCode: the same three steps.
 
+With both discovery paths present in the project (`.claude/skills` and
+`.agents/skills`), each harness listed the skill once when asked.
+
 The checks for the user-scope install (both discovery paths at once, behavior
 after compaction) still need a person to run them on a real machine. The
 install test checks that the script writes the same shim to both paths and that
