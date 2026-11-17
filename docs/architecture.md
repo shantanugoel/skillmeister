@@ -313,7 +313,7 @@ version bump, and `doctor` reports the binary version alongside it.
 
 | Topic | Decision |
 |---|---|
-| Library root | `--library` > `SKILLMEISTER_ROOT` > `~/.skillmeister`; must contain `skillmeister.yaml`. When `~/.skillmeister` has no library and `~/dev/skillmeister` has one, the older path is used. No config file stores the choice. |
+| Library root | `--library` > `SKILLMEISTER_ROOT` > `~/.skillmeister`; must contain `skillmeister.yaml`. No config file stores the choice. |
 | Profile | `--profile` (global) > `SKILLMEISTER_PROFILE` > all packs; unknown profile is an error; `--pack` intersects |
 | Flags | before positionals; `--` ends flag parsing; a test runs the shim's exact line |
 | `--all` | include disabled packs and skills |

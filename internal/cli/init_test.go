@@ -173,36 +173,6 @@ func TestMissingLibraryHints(t *testing.T) {
 	}
 }
 
-func TestDefaultLibraryFallsBackToTheOldLocation(t *testing.T) {
-	home := realPath(t, t.TempDir())
-	old := filepath.Join(home, "dev", "skillmeister")
-	write(t, old, "skillmeister.yaml", baseManifest)
-	write(t, old, "skills/alpha/SKILL.md", skillMD("alpha", "Old place."))
-	r := mustOK(t, runHome(t, home, "find", "--json", "alpha"))
-	if !strings.Contains(r.out, old) {
-		t.Errorf("the old location was not used:\n%s", r.out)
-	}
-	// Once ~/.skillmeister has a library, it wins.
-	write(t, filepath.Join(home, ".skillmeister"), "skillmeister.yaml", baseManifest)
-	if r := runHome(t, home, "find", "--json", "alpha"); strings.Contains(r.out, "alpha") {
-		t.Errorf("the new default did not win:\n%s", r.out)
-	}
-	// SKILLMEISTER_ROOT beats both.
-	var out, errb strings.Builder
-	env := Env{Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errb, Getenv: func(k string) string {
-		switch k {
-		case "HOME":
-			return home
-		case "SKILLMEISTER_ROOT":
-			return old
-		}
-		return ""
-	}}
-	if code := Run([]string{"find", "--json", "alpha"}, env); code != 0 || !strings.Contains(out.String(), "alpha") {
-		t.Errorf("SKILLMEISTER_ROOT: %d %s", code, out.String())
-	}
-}
-
 func TestInitRepairsAnInterruptedShimDirectory(t *testing.T) {
 	home := realPath(t, t.TempDir())
 	dir := filepath.Join(home, ".claude", "skills", "skillmeister")

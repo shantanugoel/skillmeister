@@ -23,12 +23,8 @@ const (
 	ExitIO    = 3 // I/O, lock contention, or subprocess failure
 )
 
-// Default library locations. The first one is the default. The second is the
-// older default; it is used only when it holds a library and the first does not.
-const (
-	DefaultLibrary       = "~/.skillmeister"
-	legacyDefaultLibrary = "~/dev/skillmeister"
-)
+// DefaultLibrary is the library location when no flag or variable names one.
+const DefaultLibrary = "~/.skillmeister"
 
 // Env carries the process environment so tests can run commands in-process.
 type Env struct {
@@ -95,16 +91,7 @@ func (g *globals) libraryDir() (string, error) {
 	if dir != "" {
 		return g.expandHome(dir)
 	}
-	def, err := g.expandHome(DefaultLibrary)
-	if err != nil {
-		return "", err
-	}
-	if !hasManifest(def) {
-		if legacy, err := g.expandHome(legacyDefaultLibrary); err == nil && hasManifest(legacy) {
-			return legacy, nil
-		}
-	}
-	return def, nil
+	return g.expandHome(DefaultLibrary)
 }
 
 func hasManifest(dir string) bool {

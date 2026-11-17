@@ -16,9 +16,7 @@ architecture. Read it with [plan.md](plan.md) and [architecture.md](architecture
   `doctor` checks.
 - The shim template is embedded in the binary (`internal/harness/SKILL.md.tmpl`).
   A library holds no copy, so a binary from Homebrew or a release works alone.
-- The default library is `~/.skillmeister`. The older default,
-  `~/dev/skillmeister`, still works when it holds a library and the new default
-  does not. A command that runs with no library prints a hint to run `init`.
+- The default library is `~/.skillmeister`. A command that runs with no library prints a hint to run `init`.
 - `internal/doctor`, `internal/pack`, and `internal/security` are new packages.
   The plan put doctor in `internal/harness`. The harness package holds the shim
   check, and `doctor` runs it when `HOME` is set.
