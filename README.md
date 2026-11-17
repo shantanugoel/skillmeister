@@ -21,12 +21,17 @@ skillmeister init
 
 1. It creates the library at `~/.skillmeister` (a manifest, a `skills/`
    directory, `.gitignore`, and `.gitattributes`). An existing library is left
-   as it is.
+   as it is. If you have an older library at `~/dev/skillmeister` and none at
+   `~/.skillmeister`, skillmeister uses the older one.
 2. It writes the shim into `~/.agents/skills/skillmeister` and
    `~/.claude/skills/skillmeister`. It stops, before it writes anything, if one
    of them is a real directory that skillmeister did not create.
 3. It adds one memory line to `~/.claude/CLAUDE.md` and
    `~/.config/opencode/AGENTS.md`.
+
+After `brew upgrade`, run `skillmeister init` again if `skillmeister doctor`
+reports `shim-stale`. The new binary carries the new shim text, and `init`
+rewrites the shim.
 
 Use `--library PATH` to put the library somewhere else, or `--no-shim` to make
 the library without touching agent config. Skillmeister keeps no config file. To

@@ -28,10 +28,28 @@ func checkTarget(skillPath string) error {
 		return fmt.Errorf("%s is a symlink; remove it first", dir)
 	}
 	data, err := os.ReadFile(skillPath)
+	if st.IsDir() && errors.Is(err, fs.ErrNotExist) && onlyTempFiles(dir) {
+		return nil // a failed earlier run left an empty directory
+	}
 	if !st.IsDir() || err != nil || !bytes.Contains(append([]byte("\n"), data...), shimName) {
 		return fmt.Errorf("%s exists and is not a skillmeister shim; move it away first", dir)
 	}
 	return nil
+}
+
+// onlyTempFiles reports whether dir holds nothing but the temp files of an
+// interrupted write.
+func onlyTempFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), ".SKILL.md.") {
+			return false
+		}
+	}
+	return true
 }
 
 // CheckInstallable verifies that the shim can be installed. It writes nothing.

@@ -69,9 +69,16 @@ func cmdInit(g *globals, args []string) error {
 		}
 		binPath = harness.StableBin(exe)
 	}
-	// Check every target before anything is written.
+	// Check every target and every path before anything is written.
 	if !*noShim {
 		if err := harness.CheckInstallable(home); err != nil {
+			return usageErr("init: %v", err)
+		}
+		real := dir
+		if r, err := filepath.EvalSymlinks(dir); err == nil {
+			real = r
+		}
+		if _, err := harness.Render(harness.Template, binPath, real); err != nil {
 			return usageErr("init: %v", err)
 		}
 	}
@@ -96,11 +103,11 @@ func cmdInit(g *globals, args []string) error {
 		g.printf("skipped the agent setup (--no-shim)\n")
 	} else {
 		shims, err := harness.InstallShim(home, binPath, lib.Abs)
-		if err != nil {
-			return ioErr(err)
-		}
 		for _, p := range shims {
 			g.printf("wrote the shim %s\n", p)
+		}
+		if err != nil {
+			return ioErr(err)
 		}
 		changed, err := harness.InstallMemory(home, lib.Abs)
 		if err != nil {
@@ -150,12 +157,24 @@ func ensureLibrary(dir string) (bool, error) {
 	return true, nil
 }
 
-// noLibraryHint tells the user how to make a library.
+// noLibraryHint tells the user how to make a library. It says so only when
+// init can make one there: the directory is missing or empty.
 func (g *globals) noLibraryHint(dir string) string {
+	if entries, err := os.ReadDir(dir); err == nil && len(entries) > 0 {
+		return fmt.Sprintf("%s has files but no %s; pick another place with --library", shortHome(g, dir), manifest.FileName)
+	}
 	if g.library == "" && g.env.Getenv("SKILLMEISTER_ROOT") == "" {
 		return "run `skillmeister init` to create a library at " + shortHome(g, dir)
 	}
-	return fmt.Sprintf("run `skillmeister --library %s init` to create it", dir)
+	return fmt.Sprintf("run `skillmeister --library %s init` to create it", shellQuote(dir))
+}
+
+// shellQuote quotes a path for a shell when it needs it.
+func shellQuote(p string) string {
+	if p != "" && strings.Trim(p, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-~+@%") == "" {
+		return p
+	}
+	return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'"
 }
 
 func shortHome(g *globals, p string) string {

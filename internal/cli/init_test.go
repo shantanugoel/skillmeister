@@ -132,8 +132,15 @@ func TestInitRefusals(t *testing.T) {
 	})
 	t.Run("relative bin", func(t *testing.T) {
 		home := realPath(t, t.TempDir())
-		if r := runHome(t, home, "--library", filepath.Join(home, "lib"), "init", "--bin", "rel/sm"); r.code == 0 {
-			t.Error("a relative binary path must fail")
+		lib := filepath.Join(home, "lib")
+		for _, bad := range []string{"rel/sm", `/a/"b`} {
+			r := runHome(t, home, "--library", lib, "init", "--bin", bad)
+			if r.code != ExitUsage {
+				t.Errorf("--bin %q: exit %d, want 1", bad, r.code)
+			}
+			if fileExists(lib) || fileExists(filepath.Join(home, ".claude")) {
+				t.Errorf("--bin %q: files were written before the refusal", bad)
+			}
 		}
 	})
 }
@@ -194,5 +201,43 @@ func TestDefaultLibraryFallsBackToTheOldLocation(t *testing.T) {
 	}}
 	if code := Run([]string{"find", "--json", "alpha"}, env); code != 0 || !strings.Contains(out.String(), "alpha") {
 		t.Errorf("SKILLMEISTER_ROOT: %d %s", code, out.String())
+	}
+}
+
+func TestInitRepairsAnInterruptedShimDirectory(t *testing.T) {
+	home := realPath(t, t.TempDir())
+	dir := filepath.Join(home, ".claude", "skills", "skillmeister")
+	write(t, dir, ".SKILL.md.12345", "half")
+	mustOK(t, runHome(t, home, "--library", filepath.Join(home, "lib"), "init", "--bin", "/x/skillmeister"))
+	if !fileExists(filepath.Join(dir, "SKILL.md")) {
+		t.Error("the shim was not written")
+	}
+	// A directory with other files is still refused.
+	home2 := realPath(t, t.TempDir())
+	d2 := filepath.Join(home2, ".claude", "skills", "skillmeister")
+	write(t, d2, "notes.txt", "mine")
+	if r := runHome(t, home2, "--library", filepath.Join(home2, "lib"), "init", "--bin", "/x/skillmeister"); r.code != ExitUsage {
+		t.Errorf("exit %d", r.code)
+	}
+}
+
+func TestHintOnlyWhereInitCanHelp(t *testing.T) {
+	home := realPath(t, t.TempDir())
+	busy := filepath.Join(home, "busy dir")
+	write(t, busy, "notes.txt", "x")
+	r := runHome(t, home, "--library", busy, "list")
+	if strings.Contains(r.err, "init") || !strings.Contains(r.err, "has files but no skillmeister.yaml") {
+		t.Errorf("busy dir: %q", r.err)
+	}
+	// A path with a space is quoted in the hint.
+	r = runHome(t, home, "--library", filepath.Join(home, "my lib"), "list")
+	if !strings.Contains(r.err, "--library '"+filepath.Join(home, "my lib")+"' init") {
+		t.Errorf("quoting: %q", r.err)
+	}
+	// An empty existing directory is fine for init.
+	empty := filepath.Join(home, "empty")
+	os.MkdirAll(empty, 0o755)
+	if r := runHome(t, home, "--library", empty, "list"); !strings.Contains(r.err, "init") {
+		t.Errorf("empty dir: %q", r.err)
 	}
 }
