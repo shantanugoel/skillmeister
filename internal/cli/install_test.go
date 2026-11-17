@@ -102,14 +102,10 @@ func TestInstallScript(t *testing.T) {
 	if !strings.Contains(first, `"`+filepath.Join(physBin, "skillmeister")+`" --library "`) || strings.Contains(first, "{{") {
 		t.Errorf("shim is not rendered:\n%s", first)
 	}
-	physical, err := filepath.EvalSymlinks(clone)
-	if err != nil {
-		t.Fatal(err)
-	}
-	line := "Skill library at `" + physical + "`, searched with `skillmeister`."
+	// The install does not touch the agent memory files.
 	for _, f := range []string{filepath.Join(home, ".claude", "CLAUDE.md"), filepath.Join(home, ".config", "opencode", "AGENTS.md")} {
-		if got := strings.Count(readAbs(t, f), line); got != 1 {
-			t.Errorf("%s has the memory line %d times", f, got)
+		if fileExists(f) {
+			t.Errorf("install created %s", f)
 		}
 	}
 	if !strings.Contains(out, "no findings") {
@@ -135,23 +131,6 @@ func TestInstallScript(t *testing.T) {
 	if readAbs(t, shims[0]) != before {
 		t.Error("shim changed on the second run")
 	}
-	for _, f := range []string{filepath.Join(home, ".claude", "CLAUDE.md"), filepath.Join(home, ".config", "opencode", "AGENTS.md")} {
-		if got := strings.Count(readAbs(t, f), line); got != 1 {
-			t.Errorf("second run: %s has the memory line %d times", f, got)
-		}
-	}
-
-	// doctor catches a deleted memory line.
-	memFile := filepath.Join(home, ".claude", "CLAUDE.md")
-	saved := readAbs(t, memFile)
-	os.WriteFile(memFile, []byte("nothing here\n"), 0o644)
-	doc0 := exec.Command(filepath.Join(bin, "skillmeister"), "--library", clone, "doctor")
-	doc0.Env = append(os.Environ(), "HOME="+home)
-	if o, err := doc0.CombinedOutput(); err == nil || !strings.Contains(string(o), "memory-missing") {
-		t.Errorf("doctor on a missing memory line: %v\n%s", err, o)
-	}
-	os.WriteFile(memFile, []byte(saved), 0o644)
-
 	// doctor catches a hand-edited shim.
 	os.WriteFile(shims[0], []byte(first+"\nextra"), 0o644)
 	doc := exec.Command(filepath.Join(bin, "skillmeister"), "--library", clone, "doctor")
@@ -201,32 +180,23 @@ func readAbs(t testing.TB, path string) string {
 	return string(b)
 }
 
-// TestInstallMemoryFileShapes checks files that already hold text: no trailing
-// newline, and CRLF line endings.
-func TestInstallMemoryFileShapes(t *testing.T) {
+// TestInstallRelativeBinDir checks that a relative BIN_DIR works, and that an
+// agent memory file that already exists is left as it is.
+func TestInstallRelativeBinDir(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the binary")
 	}
 	clone := cloneTree(t)
 	home := t.TempDir()
-	physical, _ := filepath.EvalSymlinks(clone)
-	line := "Skill library at `" + physical + "`, searched with `skillmeister`. Use it only when I explicitly ask for a skill."
-	claudeMD := filepath.Join(home, ".claude", "CLAUDE.md")
-	opencodeMD := filepath.Join(home, ".config", "opencode", "AGENTS.md")
 	write(t, filepath.Join(home, ".claude"), "CLAUDE.md", "# My rules\nno trailing newline")
-	write(t, filepath.Join(home, ".config", "opencode"), "AGENTS.md", "# Rules\r\n"+line+"\r\n")
-	// A relative BIN_DIR must work.
 	cmd := exec.Command("sh", filepath.Join(clone, "scripts", "install.sh"))
 	cmd.Dir = home
 	cmd.Env = installEnv(home, "rel-bin")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("install: %v\n%s", err, out)
 	}
-	if got := readAbs(t, claudeMD); got != "# My rules\nno trailing newline\n"+line+"\n" {
-		t.Errorf("CLAUDE.md:\n%q", got)
-	}
-	if got := readAbs(t, opencodeMD); strings.Count(got, line) != 1 {
-		t.Errorf("a CRLF file got the line again:\n%q", got)
+	if got := readAbs(t, filepath.Join(home, ".claude", "CLAUDE.md")); got != "# My rules\nno trailing newline" {
+		t.Errorf("CLAUDE.md was changed:\n%q", got)
 	}
 	if !fileExists(filepath.Join(home, "rel-bin", "skillmeister")) {
 		t.Error("the relative BIN_DIR was not used")

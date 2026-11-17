@@ -26,12 +26,13 @@ skillmeister init
 2. It writes the shim into `~/.agents/skills/skillmeister` and
    `~/.claude/skills/skillmeister`. It stops, before it writes anything, if one
    of them is a real directory that skillmeister did not create.
-3. It adds one memory line to `~/.claude/CLAUDE.md` and
-   `~/.config/opencode/AGENTS.md`.
 
 After `brew upgrade`, run `skillmeister init` again if `skillmeister doctor`
 reports `shim-stale`. The new binary carries the new shim text, and `init`
 rewrites the shim.
+
+`init` changes nothing but the library and those two shim directories. It does
+not edit `CLAUDE.md`, `AGENTS.md`, or any settings file.
 
 Use `--library PATH` to put the library somewhere else, or `--no-shim` to make
 the library without touching agent config. Skillmeister keeps no config file. To

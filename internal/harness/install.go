@@ -83,43 +83,6 @@ func InstallShim(home, bin, root string) ([]string, error) {
 	return written, nil
 }
 
-// InstallMemory appends the memory line to each memory file that lacks it. A
-// file that does not end in a newline gets one first. It returns the files it
-// changed.
-func InstallMemory(home, root string) ([]string, error) {
-	line := MemoryLine(root)
-	var changed []string
-	for _, p := range MemoryFiles(home) {
-		data, err := os.ReadFile(p)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return changed, err
-		}
-		if containsAny(string(data), []string{line}) {
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			return changed, err
-		}
-		add := line + "\n"
-		if len(data) > 0 && !bytes.HasSuffix(data, []byte("\n")) {
-			add = "\n" + add
-		}
-		f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			return changed, err
-		}
-		_, werr := f.WriteString(add)
-		if cerr := f.Close(); werr == nil {
-			werr = cerr
-		}
-		if werr != nil {
-			return changed, werr
-		}
-		changed = append(changed, p)
-	}
-	return changed, nil
-}
-
 // StableBin returns a path for the binary that survives an upgrade. Homebrew
 // puts the real file in a versioned Cellar directory and links it from
 // <prefix>/bin. The link is the path to write into the shim.

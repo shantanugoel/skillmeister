@@ -39,7 +39,7 @@ func TestInitCreatesLibraryAndSetsUpAgents(t *testing.T) {
 	home := realPath(t, t.TempDir())
 	lib := filepath.Join(home, "lib")
 	r := mustOK(t, runHome(t, home, "--library", lib, "init", "--bin", "/opt/sm/skillmeister"))
-	for _, want := range []string{"created the library at " + lib, "wrote the shim", "added the memory line", "git init"} {
+	for _, want := range []string{"created the library at " + lib, "wrote the shim", "git init"} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("output lacks %q:\n%s", want, r.out)
 		}
@@ -55,10 +55,9 @@ func TestInitCreatesLibraryAndSetsUpAgents(t *testing.T) {
 			t.Errorf("%s is not the rendered shim", p)
 		}
 	}
-	for _, p := range harness.MemoryFiles(home) {
-		if strings.Count(readAbs(t, p), harness.MemoryLine(lib)) != 1 {
-			t.Errorf("%s lacks the memory line", p)
-		}
+	// Agent memory files are not touched.
+	if fileExists(filepath.Join(home, ".claude", "CLAUDE.md")) || fileExists(filepath.Join(home, ".config")) {
+		t.Error("init wrote agent memory or config files")
 	}
 	// The new library is valid and doctor passes. The binary path is a fake, so
 	// doctor reports it; every other check is clean.
@@ -76,11 +75,11 @@ func TestInitIsIdempotentAndKeepsExistingFiles(t *testing.T) {
 	os.MkdirAll(filepath.Dir(bin), 0o755)
 	os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755)
 	mustOK(t, runHome(t, home, "--library", lib, "init", "--bin", bin))
-	// The user edits the manifest and a memory file. A second init changes neither.
+	// The user edits the manifest. A second init changes nothing.
 	write(t, lib, "skillmeister.yaml", baseManifest)
 	before := tree(t, home)
 	r := mustOK(t, runHome(t, home, "--library", lib, "init", "--bin", bin))
-	if !strings.Contains(r.out, "already exists") || !strings.Contains(r.out, "already in place") {
+	if !strings.Contains(r.out, "already exists") {
 		t.Errorf("second init:\n%s", r.out)
 	}
 	if after := tree(t, home); !equalMaps(before, after) {

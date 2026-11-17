@@ -109,16 +109,6 @@ func cmdInit(g *globals, args []string) error {
 		if err != nil {
 			return ioErr(err)
 		}
-		changed, err := harness.InstallMemory(home, lib.Abs)
-		if err != nil {
-			return ioErr(err)
-		}
-		for _, p := range changed {
-			g.printf("added the memory line to %s\n", p)
-		}
-		if len(changed) == 0 {
-			g.printf("the memory lines are already in place\n")
-		}
 	}
 	if created {
 		g.printf("\nnext:\n")

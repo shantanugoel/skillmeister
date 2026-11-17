@@ -23,11 +23,10 @@ var Template []byte
 
 // Finding codes of the harness checks.
 const (
-	CodeShimMissing   = "shim-missing"
-	CodeShimStale     = "shim-stale"
-	CodeShimBinary    = "shim-binary"
-	CodeShimRoot      = "shim-root"
-	CodeMemoryMissing = "memory-missing"
+	CodeShimMissing = "shim-missing"
+	CodeShimStale   = "shim-stale"
+	CodeShimBinary  = "shim-binary"
+	CodeShimRoot    = "shim-root"
 )
 
 // Render fills the shim template with the absolute binary and library paths.
@@ -45,11 +44,6 @@ func Render(tmpl []byte, bin, root string) ([]byte, error) {
 	return []byte(strings.NewReplacer("{{BIN}}", bin, "{{ROOT}}", root).Replace(string(tmpl))), nil
 }
 
-// MemoryLine is the line that install appends to the agent memory files.
-func MemoryLine(root string) string {
-	return fmt.Sprintf("Skill library at `%s`, searched with `skillmeister`. Use it only when I explicitly ask for a skill.", root)
-}
-
 // ShimPaths lists where the rendered shim lives. Both discovery paths hold the
 // same file, and each harness lists the skill once.
 func ShimPaths(home string) []string {
@@ -59,19 +53,10 @@ func ShimPaths(home string) []string {
 	}
 }
 
-// MemoryFiles lists the memory files that carry the memory line.
-func MemoryFiles(home string) []string {
-	return []string{
-		filepath.Join(home, ".claude", "CLAUDE.md"),
-		filepath.Join(home, ".config", "opencode", "AGENTS.md"),
-	}
-}
-
 // cmdRE finds the find command of a rendered shim: binary, then library.
 var cmdRE = regexp.MustCompile(`(?m)^"([^"\n]+)" --library "([^"\n]+)" find --json`)
 
-// Check inspects the installed shims and memory lines. An empty home skips the
-// checks.
+// Check inspects the installed shims. An empty home skips the checks.
 func Check(home string, lib *library.Library) []doctor.Finding {
 	if home == "" {
 		return nil
@@ -115,31 +100,7 @@ func Check(home string, lib *library.Library) []doctor.Finding {
 			add(CodeShimStale, p, "the shim differs from the template; %s", fix)
 		}
 	}
-	// install.sh writes the physical path, and the user may name the library
-	// through a symlink. Both spellings count.
-	lines := []string{MemoryLine(lib.Abs)}
-	if r, err := filepath.EvalSymlinks(lib.Abs); err == nil && r != lib.Abs {
-		lines = append(lines, MemoryLine(r))
-	}
-	for _, p := range MemoryFiles(home) {
-		data, err := os.ReadFile(p)
-		if err != nil || !containsAny(string(data), lines) {
-			add(CodeMemoryMissing, p, "the memory line is missing; %s", fix)
-		}
-	}
 	return out
-}
-
-func containsAny(text string, lines []string) bool {
-	for _, l := range strings.Split(text, "\n") {
-		l = strings.TrimRight(l, "\r")
-		for _, want := range lines {
-			if l == want {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // samePath compares two paths after it resolves symlinks.

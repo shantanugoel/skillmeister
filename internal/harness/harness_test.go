@@ -56,10 +56,6 @@ func install(t *testing.T, home string, lib *library.Library, bin string) {
 		os.MkdirAll(filepath.Dir(p), 0o755)
 		os.WriteFile(p, out, 0o644)
 	}
-	for _, p := range MemoryFiles(home) {
-		os.MkdirAll(filepath.Dir(p), 0o755)
-		os.WriteFile(p, []byte("other line\n"+MemoryLine(lib.Abs)+"\n"), 0o644)
-	}
 }
 
 func codes(fs []doctor.Finding) string {
@@ -75,7 +71,7 @@ func TestCheck(t *testing.T) {
 	if got := Check("", lib); got != nil {
 		t.Errorf("empty home must skip: %v", got)
 	}
-	if got := codes(Check(home, lib)); got != "shim-missing,shim-missing,memory-missing,memory-missing" {
+	if got := codes(Check(home, lib)); got != "shim-missing,shim-missing" {
 		t.Errorf("nothing installed: %s", got)
 	}
 	install(t, home, lib, bin)
@@ -97,7 +93,6 @@ func TestCheck(t *testing.T) {
 			out, _ := Render([]byte(tmpl), bin, filepath.Join(filepath.Dir(lib.Abs), "elsewhere"))
 			os.WriteFile(shim, out, 0o644)
 		}, "shim-root"},
-		"memory removed": {func() { os.WriteFile(MemoryFiles(home)[0], []byte("nothing\n"), 0o644) }, "memory-missing"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			install(t, home, lib, bin)

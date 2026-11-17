@@ -166,8 +166,7 @@ install.sh
   3. render the shim template with absolute {{BIN}} and {{ROOT}} paths into
      ~/.agents/skills/skillmeister/SKILL.md and
      ~/.claude/skills/skillmeister/SKILL.md
-  4. append the memory line to ~/.claude/CLAUDE.md and ~/.config/opencode/AGENTS.md
-  5. skillmeister doctor
+  4. skillmeister doctor
 ```
 
 There is nothing to fetch on install because packs are committed. `npm ci` is a
@@ -377,10 +376,8 @@ skillmeister find --json --limit 8 "<query>"
   user explicitly asks for a skill". The hard gate is one line:
   `disable-model-invocation: true`, invoked only as `/skillmeister` or
   `@skillmeister`. Phase 0 picks one variant for both harnesses.
-- **Memory line** in both `~/.claude/CLAUDE.md` and `~/.config/opencode/AGENTS.md`,
-  written with the library root that install used:
-  "Skill library at `~/.skillmeister`, searched with `skillmeister`. Use it
-  only when I explicitly ask for a skill."
+- **No memory line.** The shim alone routes the agent, so install does not edit
+  `CLAUDE.md`, `AGENTS.md`, or any other agent file.
 - **Claude Code permissions**: an additional directory for the library plus read
   and `skillmeister` command allowances, with the exact settings file documented
   in Phase 3. Phase 0 uses the same config so it measures the shim, not prompts.

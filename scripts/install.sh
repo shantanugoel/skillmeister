@@ -4,11 +4,11 @@
 #   scripts/install.sh
 #
 # Environment:
-#   HOME          where the shims and memory lines go
+#   HOME          where the shims go
 #   BIN_DIR       where the binary goes (default: $HOME/.local/bin)
 #
 # Steps: check Go, refuse to clobber, build from vendor/, install the binary,
-# run `skillmeister init` (shim and memory lines), run doctor.
+# run `skillmeister init` (the shim), run doctor.
 set -eu
 
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
@@ -55,7 +55,7 @@ mv -f "$tmp" "$bin"
 trap - EXIT
 printf 'installed %s (%s)\n' "$bin" "$ver"
 
-# 4. Render the shim into both discovery paths and add the memory lines, once.
+# 4. Render the shim into both discovery paths.
 #    `init` does both. It refuses again to clobber, and it leaves this
 #    library's own files as they are.
 "$bin" --library "$here" init --bin "$bin"

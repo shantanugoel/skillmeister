@@ -124,10 +124,9 @@ writers cannot corrupt the manifest.
 
 - `scripts/install.sh`: idempotent, refuses to clobber a real directory, checks
   Go ≥ 1.27 and sets `GOTOOLCHAIN=local`, builds from the vendored tree, installs
-  the binary, renders the shim twice with absolute paths, appends memory lines
-  once, then runs `doctor`.
-- `doctor` grows the harness checks: rendered shim matches the template, memory
-  lines present, binary resolves.
+  the binary, renders the shim twice with absolute paths, then runs `doctor`.
+- `doctor` grows the harness checks: rendered shim matches the template, binary
+  resolves.
 - Claude Code permissions block with the exact settings file, documented in the
   README.
 - README, THIRD_PARTY_NOTICES.
@@ -155,7 +154,7 @@ that justifies it.
 | Shim not reliably invoked | Phase 0 protocol; MCP fallback is a separate timebox |
 | Ranking feels bad | Fixture query set + golden top-3 tests before tuning |
 | `skills add` changes its layout or flags | Pin the version; one adapter file isolates the subprocess |
-| Discovery differs per harness | `doctor` checks rendered shims and memory lines |
+| Discovery differs per harness | `doctor` checks rendered shims |
 | Pack size bloats the repo | Warn at add over 25 MB; keep binary assets in their own pack. No gitignore option — offline-on-clone is a goal |
 | Scope creep | No embeddings, GUI, daemon, or auto-update in v0.1 |
 
