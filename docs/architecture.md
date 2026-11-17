@@ -213,6 +213,12 @@ skillmeister add --as anthropic --fetch npx --ref 8f3c2a1 anthropics/skills
   orphan that `doctor` reports and bare `sync` repairs
 - print a summary: skill count, names, and skills that need native semantics
 - warn when the pack is larger than 25 MB
+- `--path D` names the subtree of a git clone (or the source directory) that
+  holds the skills. Without it, `add` looks at the clone root, then at
+  `skills/`, and records the directory that it used in the manifest. `sync`
+  reads that `path` when it restores a pack.
+- reject a fetched pack that holds a symlink which leaves its skill directory,
+  and a source path that resolves outside the clone
 - never auto-trust; `untrusted` unless `--trust` is passed explicitly
 - refuses an existing pack ID unless `--force`, which uses the same tombstone swap
 - never commits; it leaves a working-tree diff for you to review
@@ -244,7 +250,9 @@ skillmeister sync --frozen             # verify only: writes nothing, exits 2 on
   renames the new pack into place, then deletes the tombstone. A concurrent `find`
   sees entirely old content, a missing pack (skipped with a warning), or entirely
   new content — never a partial tree.
-- `sync` repairs missing packs and orphan directories. It never overwrites a
+- `sync` first puts back a pack from a swap tombstone when a crash left the
+  tombstone as the only copy. Then it repairs missing packs and orphan
+  directories. It never overwrites a
   `modified` pinned pack: it reports it and exits `2`.
 - `sync --frozen` never writes: exit `0` clean, `2` on drift.
 
@@ -259,7 +267,7 @@ skillmeister show   [--summary] [--raw] [--meta] <id|name>
 skillmeister path   <id>
 skillmeister list   [--json] [--pack P] [--all] [--trust T]
 
-skillmeister add    [--as P] [--fetch local|npx|git] [--ref R] [--trust T] [--force] <source>
+skillmeister add    [--as P] [--fetch local|npx|git] [--ref R] [--path D] [--trust T] [--force] <source>
 skillmeister enable  <id|pack>
 skillmeister disable <id|pack>
 skillmeister remove  [--purge] <pack>
@@ -268,6 +276,7 @@ skillmeister sync    [--frozen]
 
 skillmeister trust  --level trusted|pinned [--accept] [--yes] <pack>
 skillmeister doctor [--security] [--json]
+skillmeister render-shim [--bin P] [--memory]    # install helper: prints the shim
 
 skillmeister --version
 

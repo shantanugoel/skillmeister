@@ -71,3 +71,18 @@ install before the v0.1 definition of done is met.
 - The spike did not test the exact invocation spelling for each harness.
 - The spike did not test the permission-rule syntax in a settings file, or
   whether it belongs in user or project settings.
+
+## Phase 3 follow-up
+
+After the install script existed, one natural request ran in each harness. The
+runs used the real binary, the real rendered shim, and a generated library of
+100 skills. They used project scope, not user scope.
+
+- Claude Code: the agent called the skill, ran `find`, and read
+  `own/pdf-tools`.
+- OpenCode: the same three steps.
+
+The checks for the user-scope install (both discovery paths at once, behavior
+after compaction) still need a person to run them on a real machine. The
+install test checks that the script writes the same shim to both paths and that
+`doctor` accepts it. It does not start an agent.

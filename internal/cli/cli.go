@@ -137,6 +137,7 @@ func commands() []command {
 		{"sync", "sync [--frozen]", cmdSync},
 		{"trust", "trust --level trusted|pinned [--accept] [--yes] <pack>", cmdTrust},
 		{"doctor", "doctor [--json]", cmdDoctor},
+		{"render-shim", "render-shim [--bin P] [--memory]   (used by scripts/install.sh)", cmdRenderShim},
 	}
 }
 

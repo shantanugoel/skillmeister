@@ -1,0 +1,12 @@
+version: 1
+
+packs:
+  # Your own skills live in skills/. Add other packs with `skillmeister add`.
+  own:
+    fetch: local
+    path: skills
+    trust: trusted
+    enabled: true
+
+defaults:
+  search_limit: 8

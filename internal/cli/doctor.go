@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/shantanugoel/skillmeister/internal/doctor"
+	"github.com/shantanugoel/skillmeister/internal/harness"
 )
 
 func cmdDoctor(g *globals, args []string) error {
@@ -26,6 +27,7 @@ func cmdDoctor(g *globals, args []string) error {
 	if err != nil {
 		return ioErr(err)
 	}
+	rep.Findings = append(rep.Findings, harness.Check(g.env.Getenv("HOME"), lib)...)
 	if rep.Findings == nil {
 		rep.Findings = []doctor.Finding{}
 	}
