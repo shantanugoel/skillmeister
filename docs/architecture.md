@@ -1,7 +1,8 @@
 # How Skillmeister Works
 
-Architecture, flows, and the command surface. Human-readable by default; with
-`--json` the output is a stable machine contract (see Output contract).
+Architecture, flows, and the command surface. CLI output is human-readable by
+default. With `--json`, the output is a stable machine contract (see Output
+contract).
 
 ## Shape
 
@@ -94,9 +95,12 @@ defaults:
 ```
 
 - `fetch` is exactly one of `local`, `npx`, `git`. One mechanism per pack.
-- `path` is a source hint only: `skills/` for `own`, a subtree inside the clone
-  for `git`, and the source directory for a local add. It is not read after the
-  copy.
+- `path` has two meanings. For `own`, it is the live location of the skills and
+  is always `skills`. For all other packs, it is a source hint only: a subtree
+  inside the clone for `git`, or the source directory for a local add. The CLI
+  does not read a source hint after the copy.
+- `trust` is `trusted`, `pinned`, or `untrusted`. `pinned` is not valid for a
+  `fetch: local` pack, because a local pack has no lock entry to verify.
 - `enabled` hides a pack; `disable` hides skills. Neither touches files.
 - `disable` stores bare, normalized skill names. Passing `pack/skill` to the CLI
   records the bare name under that pack.
@@ -111,12 +115,19 @@ Two lockfiles exist, with a strict division:
 
 - `skills-lock.json` is owned by the `skills` CLI, lives at the repo root, and is
   authoritative only for `fetch: npx` packs.
-- `skillmeister.lock.json` is the only lockfile the router reads. For npx packs
-  its entries are derived from `skills-lock.json` at `add` time; for `git` packs
-  it records the resolved commit plus a tree hash.
+- `skillmeister.lock.json` is the only lockfile the router reads. Each `npx` and
+  `git` pack has one entry with the same shape: `resolved` (the full commit
+  that `ref` pointed to at fetch time) and `tree` (the tree hash of
+  `packs/<pack>/` after the copy). For `npx` packs, `resolved` comes from
+  `skills-lock.json` at `add` time. For `git` packs, it comes from the clone.
+
+```json
+{"version":1,"packs":{"anthropic":{"fetch":"npx","resolved":"8f3c2a1…","tree":"sha256:…"}}}
+```
 
 `fetch: local` packs have **no lock entry at all**. You own them, edits are
-expected, and there is nothing to drift.
+expected, and there is nothing to drift. For the same reason, `sync` cannot
+restore a missing local pack. It reports the pack and exits `2`.
 
 `sync` restores at `resolved`, never at `ref`. `update --apply` moves `ref` and
 `resolved` together. A lock entry whose commit cannot be fetched is an error.
@@ -151,7 +162,7 @@ pins `* -text` so line endings cannot drift the hash.
 
 ```text
 install.sh
-  1. require Go >= 1.27 and set GOTOOLCHAIN=local (or use a prebuilt binary)
+  1. require Go >= 1.27 and set GOTOOLCHAIN=local
   2. build from the vendored tree, install to ~/.local/bin
   3. render the shim template with absolute {{BIN}} and {{ROOT}} paths into
      ~/.agents/skills/skillmeister/SKILL.md and
@@ -166,7 +177,8 @@ prerequisite only before `add` or `update` of an npx pack.
 ### Find and load
 
 ```text
-agent: skillmeister find --json --limit 8 "convert a pdf to markdown"
+user:  "find me a skill to convert a pdf to markdown"
+agent: skillmeister find --json --limit 8 "pdf"
 CLI:   scan enabled packs -> frontmatter -> rank -> compact JSON
 agent: picks own/pdf-tools, reads skills/pdf-tools/SKILL.md
 agent: follows the body for the rest of the session; re-runs find on topic change
@@ -176,8 +188,12 @@ agent: follows the body for the rest of the session; re-runs find on topic chang
 keep scanning. `show`, `add`, and `doctor` report those errors; only `add` refuses
 the pack.
 
-Body matching is capped at the first 8 KB of a skill body, and scanning stops once
-`--limit` results are filled at a higher tier.
+The ranking tiers and scores are in [plan.md](plan.md), Phase 1. Every query
+token must match, so the agent sends keywords, not the full sentence of the
+user.
+
+Body matching reads only the first 8 KB of a skill body. The CLI skips body
+matching when the higher tiers already fill `--limit` results.
 
 ### Add a pack
 
@@ -196,6 +212,7 @@ skillmeister add --as anthropic --fetch npx --ref 8f3c2a1 anthropics/skills
 - write manifest and lock through temp files and a rename; a crash leaves an
   orphan that `doctor` reports and bare `sync` repairs
 - print a summary: skill count, names, and skills that need native semantics
+- warn when the pack is larger than 25 MB
 - never auto-trust; `untrusted` unless `--trust` is passed explicitly
 - refuses an existing pack ID unless `--force`, which uses the same tombstone swap
 - never commits; it leaves a working-tree diff for you to review
@@ -223,7 +240,7 @@ skillmeister sync --frozen             # verify only: writes nothing, exits 2 on
 
 - `update --check` may run `git ls-remote` or `npm view`; "read-only" means no
   library writes, not no network.
-- `update --apply` stages a full copy, renames the old pack to `.removed/.swap-*`,
+- `update --apply` asks for confirmation, then stages a full copy, renames the old pack to `.removed/.swap-*`,
   renames the new pack into place, then deletes the tombstone. A concurrent `find`
   sees entirely old content, a missing pack (skipped with a warning), or entirely
   new content — never a partial tree.
@@ -249,7 +266,7 @@ skillmeister remove  [--purge] <pack>
 skillmeister update  [--check|--apply] [--yes] [pack]
 skillmeister sync    [--frozen]
 
-skillmeister trust  --level trusted|pinned [--accept] <pack>
+skillmeister trust  --level trusted|pinned [--accept] [--yes] <pack>
 skillmeister doctor [--security] [--json]
 
 skillmeister --version
@@ -259,9 +276,11 @@ global, before the subcommand:
 ```
 
 Read-only: `find`, `show`, `path`, `list`, `doctor`, `update --check`,
-`sync --frozen`. Only `add`, bare `sync`, and `update --apply` may write the
-library. `update --check` may perform read-only network calls. No command ever
-executes skill code.
+`sync --frozen`. `update --check` may perform read-only network calls.
+
+Writers: `enable`, `disable`, and `trust` write the manifest or the lockfile
+only. `add`, `remove`, bare `sync`, and `update --apply` can also write pack
+files. No command ever executes skill code.
 
 Writers take an exclusive lock at the library root; a second writer exits `3`.
 
@@ -293,9 +312,10 @@ version bump, and `doctor` reports the binary version alongside it.
 | `--all` | include disabled packs and skills |
 | `--pack` | repeatable via a `flag.Value`; intersects with the active profile |
 | `--limit` | `--limit` > `defaults.search_limit` > 8 |
-| `--trust` (list only) | exact match on declared trust; `modified` is rejected with a pointer to `doctor` |
+| `list --trust` | exact match on declared trust; `modified` is rejected with a pointer to `doctor` |
+| `add --trust` | `trusted`, `pinned`, or `untrusted`; `pinned` is rejected for a local pack |
 | Global flags | before the subcommand; each subcommand has its own `flag.FlagSet` with `ContinueOnError` |
-| Confirmation | prompts only when stdin is a TTY; `--yes` required otherwise; declining exits `1` |
+| Confirmation | `update --apply`, and `trust --level trusted` on a fetched pack; prompts only when stdin is a TTY; `--yes` required otherwise; declining exits `1` |
 | Manifest strictness | unknown keys, unknown `fetch`/`trust` values, and a missing `version` are errors; `enabled` defaults true, `trust` defaults `untrusted` |
 | Manifest writes | edit a YAML node tree to preserve comments and key order; golden round-trip test |
 | Frontmatter | split on the first `---` … `---` pair; strip a BOM; accept CRLF fences; invalid UTF-8, duplicate keys, an unterminated fence, or multiple documents are errors; cap at 64 KB |
@@ -318,13 +338,18 @@ The shim is the only consumer of the stable record.
 skillmeister find --json --limit 8 "<query>"
 ```
 
+- Send 1 to 3 keywords as the query, not a sentence. Every query token must
+  match.
 - Read `id`, `name`, `description`, `path`, `trust`, `score`, `warnings`; ignore
   the rest.
-- Zero records: report that nothing matched and mention that `--all` includes
-  disabled skills. Do not widen the search automatically — `disable` is a user
+- Zero records: try one time more with fewer or different keywords. If there
+  are still no records, report that nothing matched and mention that `--all`
+  includes disabled skills. Do not widen the search automatically — `disable` is a user
   decision.
 - Non-zero exit: show the stderr line and stop.
-- Two results at the same score: ask the user instead of guessing.
+- Top two results at the same score: use the descriptions to choose. If the
+  descriptions do not make the choice clear, ask the user. Scores have only
+  five levels, so equal scores are usual and are not a reason to ask.
 - `trust` is `untrusted`: run `show --summary`, describe what the skill does and
   what it would run, and ask before reading the body. `modified` never reaches
   the shim; only `doctor` computes it.
@@ -344,7 +369,8 @@ skillmeister find --json --limit 8 "<query>"
   user explicitly asks for a skill". The hard gate is one line:
   `disable-model-invocation: true`, invoked only as `/skillmeister` or
   `@skillmeister`. Phase 0 picks one variant for both harnesses.
-- **Memory line** in both `~/.claude/CLAUDE.md` and `~/.config/opencode/AGENTS.md`:
+- **Memory line** in both `~/.claude/CLAUDE.md` and `~/.config/opencode/AGENTS.md`,
+  written with the library root that install used:
   "Skill library at `~/dev/skillmeister`, searched with `skillmeister`. Use it
   only when I explicitly ask for a skill."
 - **Claude Code permissions**: an additional directory for the library plus read
@@ -369,12 +395,13 @@ Each is a one-line check against the installed versions, not a design decision.
 ## Invariants
 
 1. Only the shim is ever natively registered.
-2. Query commands never write and never execute external commands.
+2. Query commands (`find`, `show`, `path`, `list`) never write and never execute
+   external commands.
 3. Every CLI read is mediated by `os.Root`, so symlink escapes fail at runtime.
    The agent's own reads are bounded by the shim contract instead.
 4. Enable/disable is manifest-only.
 5. One fetch mechanism per pack.
-6. The lockfile pins commit and tree hash for fetched packs; local packs are
+6. The lockfile pins commit and tree hash for fetched (`npx` and `git`) packs; local packs are
    never locked; `modified` is computed only by `doctor` and `sync`.
 7. `sync --frozen` never writes: exit 0 clean, exit 2 on drift.
 8. A failed write never leaves a half-written manifest, lockfile, or pack.
@@ -395,14 +422,14 @@ Transitions:
 | From | Action | To |
 |---|---|---|
 | `untrusted` | `trust --level pinned` when the hash matches | `pinned` |
-| `untrusted` | `trust --level trusted` | `trusted`, with a confirmation warning for remote packs |
+| `untrusted` | `trust --level trusted` | `trusted`, with a confirmation for fetched packs |
 | `pinned` | edit the tree | `modified` in `doctor`; declared stays `pinned` |
 | `modified` | `trust --level pinned --accept` | `pinned`, lock hash rewritten |
 | `modified` | `update --apply` | `pinned`, upstream content restored |
 
 `trust` is pack-level only; there is no per-skill trust override. `trusted` on a
-remote pack disables drift detection, so it prints a warning and still records the
-hash.
+fetched pack disables drift detection, so the command asks for confirmation. The
+lock entry stays, so a later change back to `pinned` can verify the hash.
 
 Trust is a UX and ranking aid, not a sandbox. `doctor --security` exits `2` when
 it finds any high-severity pattern: bundled scripts, `curl | sh`, `sudo`, `eval`,

@@ -11,9 +11,9 @@ external dependency. Read [overview.md](overview.md) and
 | Language | Go 1.27 | Fast iteration, boring code, single static binary |
 | CLI parsing | stdlib `flag`, one `FlagSet` per subcommand, flags before positionals | `flag` stops at the first positional; the docs and the shim use that order |
 | YAML reads | `github.com/goccy/go-yaml` | Active, field-level errors; frontmatter surface is small |
-| YAML writes | edit a `yaml.Node` tree | Preserves comments and key order, so lifecycle diffs stay reviewable |
+| YAML writes | edit the go-yaml `ast` tree, parsed with `parser.ParseComments` | Preserves comments and key order, so lifecycle diffs stay reviewable |
 | Everything else | stdlib | `encoding/json`, `crypto/sha256`, `os/exec`, `testing` |
-| Containment | `os.Root` + `Root.ReadDir` recursion | Escapes fail at runtime; `filepath.WalkDir` would bypass the guarantee |
+| Containment | `os.Root`; recursion with `Root.Open` + `File.ReadDir` | Escapes fail at runtime; `filepath.WalkDir` would bypass the guarantee |
 | Version | `debug.ReadBuildInfo`, overridden by ldflags | One string for `--version` and `doctor` |
 | Offline build | `go mod vendor`, `GOTOOLCHAIN=local` | Install works with no network and no toolchain download |
 
@@ -62,7 +62,7 @@ Protocol, per harness and per variant:
 Choose the soft gate if it passes; the hard gate only if soft fails or strictness
 is wanted. One variant wins for both harnesses.
 
-**Fail:** wrap the same logic in a stdio MCP server (`search_skills`,
+**If both variants fail:** wrap the same logic in a stdio MCP server (`search_skills`,
 `read_skill`) and re-run the protocol. That is a separate half-day with its own
 `cmd/skillmeister-mcp`; it is a Phase 0 outcome, never a second transport
 alongside a working shim.
@@ -82,8 +82,9 @@ The product is search quality; build that before any lifecycle machinery.
   ties break `own` first, then trust order, then name. Exact name is
   `EqualFold` against the record name or full ID, before tokenization; tokenize by
   lowercasing and splitting on `[^a-z0-9]+`; every query token must appear in the
-  winning tier's field; "prefix" means a token prefix. Body matching reads at most
-  the first 8 KB.
+  winning tier's field; "prefix" means that the query tokens are the first
+  tokens of the name. Body matching reads at most the first 8 KB. Because every
+  token must match, the shim tells the agent to send keywords, not a sentence.
 - Profiles and `--pack` filtering (a predicate over the scan).
 - `find`, `list`, `show` (including `--summary`), `path`; `--json` on `find` and
   `list` only.
@@ -100,7 +101,7 @@ The product is search quality; build that before any lifecycle machinery.
 
 - `enable` / `disable` (pack and skill level), `trust` with the transition table:
   `pinned` verifies the current hash, `--accept` rewrites it, `trusted` on a
-  remote pack warns.
+  fetched pack asks for confirmation. `pinned` is rejected for a local pack.
 - `lock`: hash recipe v1 with framed, tagged records; local packs have no entry.
 - `doctor`: read-only drift report, orphan pack dirs and lock entries, missing or
   non-normalized skill directories, frontmatter flags.
@@ -110,7 +111,7 @@ The product is search quality; build that before any lifecycle machinery.
   collisions.
 - `remove` / `--purge`: quarantine to `.removed/<pack>/` versus delete.
 - `sync` repair, then `sync --frozen` verify. Repair re-fetches, so it lands last.
-- Manifest writes through `yaml.Node`, with a golden round-trip test.
+- Manifest writes through the go-yaml `ast` tree, with a golden round-trip test.
 - An exclusive writer lock at the library root; contention exits `3`.
 
 **Acceptance:** `disable` then `find` excludes it with zero filesystem changes.
