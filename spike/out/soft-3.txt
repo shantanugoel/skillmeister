@@ -1,0 +1,5 @@
+skill:skillmeister
+bash:"/Users/shantanugoel/dev/skillmeister/spike/lister.sh" --library "/Users/shantanugoel/dev/skillmeister/spike/lib" find --json --limit 8 -- "csv chart"
+bash:"/Users/shantanugoel/dev/skillmeister/spike/lister.sh" --library "/Users/shantanugoel/dev/skillmeister/spike/lib" find --json --limit 8 -- "csv"; echo "exit $?"; "/Users/shantanugoel/dev/skillmeister/spike/lister.sh" --library "/Users/shantanugoel/dev/skillmeister/spike/lib" find --json --limit 8 -- "chart"
+bash:"/Users/shantanugoel/dev/skillmeister/spike/lister.sh" --library "/Users/shantanugoel/dev/skillmeister/spike/lib" find --json --limit 8 -- "csv"
+bash:"/Users/shantanugoel/dev/skillmeister/spike/lister.sh" --library "/Users/shantanugoel/dev/skillmeister/spike/lib" find --json --limit 8 -- "chart"

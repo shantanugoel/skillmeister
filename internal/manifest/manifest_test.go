@@ -100,7 +100,7 @@ func TestParseErrors(t *testing.T) {
 		{"profile unknown pack", "version: 1\npacks:\n  x:\n    fetch: local\nprofiles:\n  p: [y]\n", 6, "unknown pack"},
 		{"two documents", "version: 1\n---\nversion: 1\n", 2, "multiple YAML documents"},
 		{"empty", "", 0, "empty"},
-		{"bad yaml", "version: [1\n", 0, ""},
+		{"bad yaml", "version: [1\n", 1, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -115,13 +115,9 @@ func TestParseErrors(t *testing.T) {
 				t.Errorf("error %q lacks the file name", err)
 			}
 			if tt.line > 0 {
-				want := "[" // go-yaml errors carry [line:col]
-				if e, ok := err.(*Error); ok && e.Line > 0 {
-					if e.Line != tt.line {
-						t.Errorf("line = %d, want %d (%v)", e.Line, tt.line, err)
-					}
-				} else if !strings.Contains(err.Error(), want+strconv.Itoa(tt.line)+":") {
-					t.Errorf("error %q has no line %d", err, tt.line)
+				want := "skillmeister.yaml:" + strconv.Itoa(tt.line) + ": "
+				if !strings.HasPrefix(err.Error(), want) {
+					t.Errorf("error %q lacks the prefix %q", err, want)
 				}
 			}
 		})

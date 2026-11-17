@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -157,7 +158,7 @@ func Parse(name string, data []byte) (*Manifest, error) {
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	file, err := parser.ParseBytes(data, parser.ParseComments)
 	if err != nil {
-		return nil, &Error{File: name, Msg: yamlMessage(err)}
+		return nil, yamlError(name, err)
 	}
 	if len(file.Docs) > 1 {
 		return nil, &Error{File: name, Line: docLine(file.Docs[1]), Msg: "multiple YAML documents"}
@@ -168,7 +169,7 @@ func Parse(name string, data []byte) (*Manifest, error) {
 	var m Manifest
 	dec := yaml.NewDecoder(bytes.NewReader(data), yaml.Strict())
 	if err := dec.Decode(&m); err != nil {
-		return nil, &Error{File: name, Msg: yamlMessage(err)}
+		return nil, yamlError(name, err)
 	}
 	m.src = data
 	m.file = file
@@ -185,12 +186,19 @@ func docLine(d *ast.DocumentNode) int {
 	return 0
 }
 
-// yamlMessage reduces a go-yaml error to its first message line, which carries
-// the [line:column] position.
-func yamlMessage(err error) string {
+var yamlPosRE = regexp.MustCompile(`^\[(\d+):\d+\] `)
+
+// yamlError turns a go-yaml error into an Error with a line number. go-yaml
+// puts the position in a "[line:column]" prefix of the first message line.
+func yamlError(file string, err error) *Error {
 	s := yaml.FormatError(err, false, false)
 	s, _, _ = strings.Cut(s, "\n")
-	return s
+	e := &Error{File: file, Msg: s}
+	if m := yamlPosRE.FindStringSubmatch(s); m != nil {
+		e.Line, _ = strconv.Atoi(m[1])
+		e.Msg = strings.TrimPrefix(s, m[0])
+	}
+	return e
 }
 
 // lineOf returns the line of the node at the YAML path, or 0.

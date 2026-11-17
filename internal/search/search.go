@@ -37,6 +37,13 @@ func Tokenize(s string) []string {
 // Find ranks recs for the query and returns at most limit hits. A limit below 1
 // means no limit. Ties break own pack first, then trust order, then name.
 func Find(recs []*library.Record, query string, limit int) []Hit {
+	return find(recs, query, limit, nil)
+}
+
+// stats counts the work of one search. Tests use it to check the body skip.
+type stats struct{ bodyScans int }
+
+func find(recs []*library.Record, query string, limit int, st *stats) []Hit {
 	query = strings.TrimSpace(query)
 	qtok := Tokenize(query)
 
@@ -54,6 +61,9 @@ func Find(recs []*library.Record, query string, limit int) []Hit {
 	// fill the limit, because body hits would sort after them and be cut.
 	if len(qtok) > 0 && (limit < 1 || len(hits) < limit) {
 		for _, r := range rest {
+			if st != nil {
+				st.bodyScans++
+			}
 			if containsAll(Tokenize(r.Body), qtok) {
 				hits = append(hits, Hit{r, ScoreBody})
 			}

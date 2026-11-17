@@ -1,0 +1,4 @@
+bash:ls -la /Users/shantanugoel/dev/skillmeister /Users/shantanugoel/dev/skillmeister/spike/lib 2>&1 | head -50; ls ~/.claude/skills 2>&1 | head
+bash:grep -ril "markdown" /Users/shantanugoel/dev/skillmeister/spike/lib 2>/dev/null | head -20
+tool:Read /Users/shantanugoel/dev/skillmeister/spike/lib/skills/pdf-tools/SKILL.md
+bash:find /Users/shantanugoel/dev/skillmeister/spike/lib -maxdepth 3 | head -60

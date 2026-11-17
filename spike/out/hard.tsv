@@ -1,0 +1,6 @@
+literal	REACHED	direct_skill_reads=0	/skillmeister find a skill for extracting text from PDFs
+literal	REACHED	direct_skill_reads=0	/skillmeister find a skill for writing commit messages
+natural	no	direct_skill_reads=1	Find me a skill for converting a PDF into Markdown.
+natural	no	direct_skill_reads=1	I need to write a good git commit message. Is there a skill in my library for that?
+natural	no	direct_skill_reads=0	Look in my skills for something that can turn a CSV into a chart.
+natural	no	direct_skill_reads=1	Search my skill library for anything about commit messages, then use it for my staged changes.

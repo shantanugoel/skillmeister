@@ -1,0 +1,2 @@
+bash:cd /Users/shantanugoel/dev/skillmeister/spike/lib && ls -la && grep -ril -E "commit" . 2>/dev/null | head -30
+tool:Read /Users/shantanugoel/dev/skillmeister/spike/lib/packs/community/commit-writer/SKILL.md

@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/shantanugoel/skillmeister/internal/manifest"
 )
@@ -30,6 +31,9 @@ const (
 // SkillFile is the file name that marks a skill directory.
 const SkillFile = "SKILL.md"
 
+// scanWorkers bounds the parallel skill reads of a scan.
+const scanWorkers = 8
+
 // Library is an opened skillmeister library.
 type Library struct {
 	// Abs is the absolute path of the library root.
@@ -38,6 +42,9 @@ type Library struct {
 	Manifest *manifest.Manifest
 }
 
+// ErrNotLibrary means that a directory is missing or has no manifest.
+var ErrNotLibrary = errors.New("not a library")
+
 // Open opens the library at dir and loads its manifest.
 func Open(dir string) (*Library, error) {
 	abs, err := filepath.Abs(dir)
@@ -45,6 +52,9 @@ func Open(dir string) (*Library, error) {
 		return nil, err
 	}
 	root, err := os.OpenRoot(abs)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("%s is %w: the directory does not exist", abs, ErrNotLibrary)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open library %s: %w", abs, err)
 	}
@@ -52,7 +62,7 @@ func Open(dir string) (*Library, error) {
 	if err != nil {
 		root.Close()
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("%s is not a library: no %s", abs, manifest.FileName)
+			return nil, fmt.Errorf("%s is %w: no %s", abs, ErrNotLibrary, manifest.FileName)
 		}
 		return nil, err
 	}
@@ -159,6 +169,12 @@ func (l *Library) ScanPack(p *manifest.Pack, includeDisabled bool) (recs []*Reco
 		}
 		return nil, []string{fmt.Sprintf("pack %s: %v", p.Name, err)}
 	}
+	type job struct {
+		name string
+		rec  *Record
+		err  error
+	}
+	var jobs []*job
 	for _, e := range entries {
 		// Symlinked directories are not followed; only real directories count.
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
@@ -172,16 +188,30 @@ func (l *Library) ScanPack(p *manifest.Pack, includeDisabled bool) (recs []*Reco
 		if !includeDisabled && p.SkillDisabled(name) {
 			continue
 		}
-		skillDir := path.Join(dir, name)
-		rec, err := l.readRecord(p, name, skillDir)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				continue // a directory without SKILL.md is not a skill
-			}
-			warnings = append(warnings, fmt.Sprintf("skipping %s/%s: %v", p.Name, name, err))
-			continue
+		jobs = append(jobs, &job{name: name})
+	}
+	// Read and parse skills in parallel. Results keep the sorted order.
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, scanWorkers)
+	for _, j := range jobs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			j.rec, j.err = l.readRecord(p, j.name, path.Join(dir, j.name))
+		}()
+	}
+	wg.Wait()
+	for _, j := range jobs {
+		switch {
+		case j.err == nil:
+			recs = append(recs, j.rec)
+		case errors.Is(j.err, fs.ErrNotExist):
+			// A directory without SKILL.md is not a skill.
+		default:
+			warnings = append(warnings, fmt.Sprintf("skipping %s/%s: %v", p.Name, j.name, j.err))
 		}
-		recs = append(recs, rec)
 	}
 	return recs, warnings
 }
@@ -293,6 +323,21 @@ func Resolve(recs []*Record, ref string) (rec *Record, also []*Record, err error
 		return Less(a, b)
 	})
 	return matches[0], matches[1:], nil
+}
+
+// SortRecords orders records for `list`: own pack first, then pack name, then
+// skill name.
+func SortRecords(recs []*Record) {
+	sort.SliceStable(recs, func(i, j int) bool {
+		a, b := recs[i], recs[j]
+		if (a.Pack == manifest.OwnPack) != (b.Pack == manifest.OwnPack) {
+			return a.Pack == manifest.OwnPack
+		}
+		if a.Pack != b.Pack {
+			return a.Pack < b.Pack
+		}
+		return a.Name < b.Name
+	})
 }
 
 // Less is the shared tie-break order: own pack first, then trust, then name.

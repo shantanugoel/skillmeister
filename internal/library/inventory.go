@@ -8,10 +8,11 @@ import (
 	"strings"
 )
 
-// Inventory bounds.
+// Inventory bounds. The walk stops at maxInventoryEntries files and reports
+// that it did, so a listing never hides files without saying so.
 const (
-	maxInventoryEntries = 500
-	maxInventoryDepth   = 8
+	maxInventoryEntries = 20000
+	maxInventoryDepth   = 16
 )
 
 // File is one entry in a skill's file inventory.
@@ -31,7 +32,8 @@ var scriptExt = map[string]bool{
 
 // Inventory lists the files under a skill directory. Directories that are
 // symlinks are listed, not followed. All reads go through the library root.
-func (l *Library) Inventory(r *Record) ([]File, error) {
+// truncated is true when the walk hit its bounds and the list is incomplete.
+func (l *Library) Inventory(r *Record) (files []File, truncated bool, err error) {
 	var out []File
 	var walk func(rel string, depth int) error
 	walk = func(rel string, depth int) error {
@@ -41,6 +43,7 @@ func (l *Library) Inventory(r *Record) ([]File, error) {
 		}
 		for _, e := range entries {
 			if len(out) >= maxInventoryEntries {
+				truncated = true
 				return nil
 			}
 			p := path.Join(rel, e.Name())
@@ -52,6 +55,7 @@ func (l *Library) Inventory(r *Record) ([]File, error) {
 				out = append(out, File{Path: p, Symlink: true})
 			case e.IsDir():
 				if depth+1 > maxInventoryDepth {
+					truncated = true
 					continue
 				}
 				if err := walk(p, depth+1); err != nil {
@@ -72,10 +76,10 @@ func (l *Library) Inventory(r *Record) ([]File, error) {
 		return nil
 	}
 	if err := walk("", 0); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out, nil
+	return out, truncated, nil
 }
 
 func isScript(p string, mode fs.FileMode) bool {

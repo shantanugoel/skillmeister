@@ -14,6 +14,7 @@ while [ $# -gt 0 ]; do
     *) break ;;
   esac
 done
+set -f
 query=$(printf '%s' "$*" | tr 'A-Z' 'a-z')
 for f in "$lib"/skills/*/SKILL.md "$lib"/packs/*/*/SKILL.md; do
   [ -f "$f" ] || continue

@@ -1,0 +1,3 @@
+skill:skillmeister
+bash:"/Users/shantanugoel/dev/skillmeister/spike/lister.sh" --library "/Users/shantanugoel/dev/skillmeister/spike/lib" find --json --limit 8 -- "pdf markdown"
+bash:"/Users/shantanugoel/dev/skillmeister/spike/lister.sh" --library "/Users/shantanugoel/dev/skillmeister/spike/lib" find --json --limit 8 -- "pdf"

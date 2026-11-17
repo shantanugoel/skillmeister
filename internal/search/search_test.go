@@ -96,7 +96,7 @@ func TestTieBreaks(t *testing.T) {
 	}
 }
 
-func TestLimitAndBodySkip(t *testing.T) {
+func TestLimit(t *testing.T) {
 	recs := []*library.Record{
 		rec("own", "x-one", "d", "", manifest.Trusted),
 		rec("own", "x-two", "d", "", manifest.Trusted),
@@ -107,6 +107,29 @@ func TestLimitAndBodySkip(t *testing.T) {
 	}
 	if got := ids(Find(recs, "x", 5)); got != "own/x-one=80 own/x-two=80 own/other=20" {
 		t.Fatalf("limit 5: %s", got)
+	}
+}
+
+func TestBodyTierIsSkippedWhenLimitIsFull(t *testing.T) {
+	recs := []*library.Record{
+		rec("own", "x-one", "d", "", manifest.Trusted),
+		rec("own", "x-two", "d", "", manifest.Trusted),
+		rec("own", "other", "d", "x appears here", manifest.Trusted),
+	}
+	var st stats
+	find(recs, "x", 2, &st)
+	if st.bodyScans != 0 {
+		t.Errorf("body tier ran %d times with a full limit", st.bodyScans)
+	}
+	st = stats{}
+	find(recs, "x", 5, &st)
+	if st.bodyScans != 1 {
+		t.Errorf("body tier ran %d times, want 1", st.bodyScans)
+	}
+	st = stats{}
+	find(recs, "x", 0, &st)
+	if st.bodyScans != 1 {
+		t.Errorf("no limit: body tier ran %d times, want 1", st.bodyScans)
 	}
 }
 

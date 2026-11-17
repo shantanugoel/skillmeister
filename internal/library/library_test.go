@@ -241,9 +241,9 @@ func TestInventory(t *testing.T) {
 		"skills/s/refs/deep/a.txt": "a",
 	})
 	recs, _, _ := lib.Scan(Scope{})
-	files, err := lib.Inventory(recs[0])
-	if err != nil {
-		t.Fatal(err)
+	files, truncated, err := lib.Inventory(recs[0])
+	if err != nil || truncated {
+		t.Fatalf("err=%v truncated=%v", err, truncated)
 	}
 	var got []string
 	for _, f := range files {

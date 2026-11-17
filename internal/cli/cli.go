@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/shantanugoel/skillmeister/internal/library"
+	"github.com/shantanugoel/skillmeister/internal/manifest"
 	"github.com/shantanugoel/skillmeister/internal/version"
 )
 
@@ -98,7 +99,11 @@ func (g *globals) openLibrary() (*library.Library, error) {
 	}
 	lib, err := library.Open(dir)
 	if err != nil {
-		return nil, usageErr("%v", err)
+		var me *manifest.Error
+		if errors.Is(err, library.ErrNotLibrary) || errors.As(err, &me) {
+			return nil, usageErr("%v", err)
+		}
+		return nil, ioErr(err)
 	}
 	return lib, nil
 }

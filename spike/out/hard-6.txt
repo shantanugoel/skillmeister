@@ -1,0 +1,6 @@
+bash:grep -ril "commit" /Users/shantanugoel/dev/skillmeister/spike/lib 2>/dev/null | head -20; ls /Users/shantanugoel/dev/skillmeister/spike/lib | head -50; ls ~/.claude/skills 2>/dev/null
+bash:cd /Users/shantanugoel/dev/skillmeister && git status --short 2>&1 | head -20
+bash:grep -ril "commit" /Users/shantanugoel/dev/skillmeister/spike/lib
+bash:git -C /Users/shantanugoel/dev/skillmeister status --short
+tool:Read /Users/shantanugoel/dev/skillmeister/spike/lib/packs/community/commit-writer/SKILL.md
+bash:git -C /Users/shantanugoel/dev/skillmeister diff --staged

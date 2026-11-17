@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -181,16 +180,7 @@ func cmdList(g *globals, args []string) error {
 		}
 		recs = kept
 	}
-	sort.SliceStable(recs, func(i, j int) bool {
-		a, b := recs[i], recs[j]
-		if (a.Pack == manifest.OwnPack) != (b.Pack == manifest.OwnPack) {
-			return a.Pack == manifest.OwnPack
-		}
-		if a.Pack != b.Pack {
-			return a.Pack < b.Pack
-		}
-		return a.Name < b.Name
-	})
+	library.SortRecords(recs)
 	if *asJSON {
 		out := make([]recordJSON, len(recs))
 		for i, r := range recs {
@@ -236,15 +226,23 @@ func idList(recs []*library.Record) string {
 	return strings.Join(ids, ", ")
 }
 
-// resolve scans the enabled skills in scope and resolves one reference.
+// resolve scans the enabled skills in scope and resolves one reference. Scan
+// warnings are not printed: show and path report only the error that matters
+// for the skill that the user named.
 func (g *globals) resolve(lib *library.Library, ref string) (*library.Record, []*library.Record, error) {
 	recs, warns, err := lib.Scan(g.scope(nil, false))
 	if err != nil {
 		return nil, nil, usageErr("%v", err)
 	}
-	g.warn(warns)
 	rec, also, err := library.Resolve(recs, ref)
 	if err != nil {
+		// An unparseable skill is not in recs. Report why, not "no such skill".
+		for _, w := range warns {
+			if id, reason, ok := strings.Cut(strings.TrimPrefix(w, "skipping "), ": "); ok && strings.HasPrefix(w, "skipping ") &&
+				(id == ref || strings.HasSuffix(id, "/"+ref)) {
+				return nil, nil, usageErr("%s: %s", id, reason)
+			}
+		}
 		return nil, nil, usageErr("%v", err)
 	}
 	return rec, also, nil
@@ -288,6 +286,9 @@ func cmdShow(g *globals, args []string) error {
 		return ioErr(fmt.Errorf("%s: %w", rec.ID, err))
 	}
 	w := g.env.Stdout
+	if (*raw || *meta) && len(also) > 0 {
+		fmt.Fprintf(g.env.Stderr, "also: %s\n", idList(also))
+	}
 	if *raw {
 		_, err := w.Write(body)
 		if err != nil {
@@ -304,26 +305,48 @@ func cmdShow(g *globals, args []string) error {
 	}
 	g.printMeta(rec, also)
 	if *summary {
-		files, err := lib.Inventory(rec)
+		files, truncated, err := lib.Inventory(rec)
 		if err != nil {
 			return ioErr(err)
 		}
-		fmt.Fprintf(w, "files: %d\n", len(files))
-		for _, f := range files {
-			tag := ""
-			if f.Script {
-				tag = "  [script]"
-			}
-			if f.Symlink {
-				tag += "  [symlink]"
-			}
-			fmt.Fprintf(w, "  %s  %s%s\n", escape(f.Path), humanSize(f.Size), tag)
-		}
+		g.printInventory(files, truncated)
 		return nil
 	}
 	fmt.Fprintln(w, "---")
 	fmt.Fprint(w, escape(string(body)))
 	return nil
+}
+
+// listedPlainFiles bounds how many non-script files `show --summary` prints.
+// Scripts are always printed, because they are what the user must know about.
+const listedPlainFiles = 200
+
+func (g *globals) printInventory(files []library.File, truncated bool) {
+	w := g.env.Stdout
+	total := fmt.Sprint(len(files))
+	if truncated {
+		total += "+ (the walk hit its limit; the list is incomplete)"
+	}
+	fmt.Fprintf(w, "files: %s\n", total)
+	plain := 0
+	for _, f := range files {
+		if !f.Script && !f.Symlink {
+			if plain++; plain > listedPlainFiles {
+				continue
+			}
+		}
+		tag := ""
+		if f.Script {
+			tag = "  [script]"
+		}
+		if f.Symlink {
+			tag += "  [symlink]"
+		}
+		fmt.Fprintf(w, "  %s  %s%s\n", escape(f.Path), humanSize(f.Size), tag)
+	}
+	if plain > listedPlainFiles {
+		fmt.Fprintf(w, "  ... and %d more files that are not scripts\n", plain-listedPlainFiles)
+	}
 }
 
 func (g *globals) printMeta(r *library.Record, also []*library.Record) {

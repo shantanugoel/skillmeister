@@ -3,52 +3,71 @@
 This file records the shim spike. The spike tested one question: does an agent
 use the shim when the user asks for a skill, and only then?
 
+**Status: the soft gate is the provisional default.** It passes the routing
+checks in Claude Code. Some checks of the plan are still open. See "Not
+measured".
+
 ## Method
 
 - Library: `spike/lib`. It has 3 skills: `own/pdf-tools`,
   `community/commit-writer`, and `community/csv-charts`.
 - Lister: `spike/lister.sh`. It is a throwaway script. It always prints
   `trust: trusted` and has no `show` command. The test measures routing only.
-- Shim: `shim/skillmeister/SKILL.md.tmpl`, rendered with absolute paths by
-  `spike/render_shim.sh`. This is the real template.
-- Permissions: `--allowedTools "Bash(<lister>:*)" "Read(<library>/**)"` and
-  `--add-dir <library>`. No permission prompt can change the result.
-- Claude Code: `spike/run_claude.sh soft|hard WORKDIR`. It renders the shim into
-  `WORKDIR/.claude/skills/` (project scope), runs each prompt with `claude -p`,
-  and reads the tool calls from the stream. "Reached" means one Skill call for
-  `skillmeister`, or one Bash call to the lister.
-- OpenCode: one manual run for each of 1 natural prompt and 1 control prompt, with
-  the shim in `.agents/skills/` (project scope).
+- Shim: `shim/skillmeister/SKILL.md.tmpl`. `spike/render_shim.sh` renders it
+  with absolute paths. This is the real template.
+- Claude Code: `spike/run_claude.sh soft|hard WORKDIR OUTDIR`. It renders the
+  shim into `WORKDIR/.claude/skills/` (project scope), runs each prompt with
+  `claude -p`, and reads the tool calls from the stream.
+  - "Reached" means one Skill call for `skillmeister`, or one Bash call that
+    starts with the lister path.
+  - A run without a successful final result event prints `ERROR`. `ERROR` is
+    never a pass.
+  - The tool calls of each run are in `spike/out/<variant>-<n>.txt`. The result
+    tables are `spike/out/soft.tsv` and `spike/out/hard.tsv`.
+- Permissions: the spike passes `--allowedTools` and `--add-dir` on the command
+  line. It does not use the settings file that Phase 3 will ship.
+- OpenCode: one manual run each for 1 natural prompt and 1 control prompt, with
+  the shim in `.agents/skills/` (project scope). No script and no log exist for
+  these runs.
 
 ## Results
 
 | Harness | Variant | Test | Result | Pass rule | Pass |
 |---|---|---|---|---|---|
-| Claude Code | soft | 4 natural prompts | 4/4 reached | with the 2 explicit prompts: at least 5/6 | yes |
-| Claude Code | soft | 2 explicit prompts | 2/2 reached | (same) | yes |
+| Claude Code | soft | 4 natural + 2 explicit prompts | 6/6 reached | at least 5/6 | yes |
 | Claude Code | soft | 2 controls | 0/2 reached | 0/2 | yes |
 | Claude Code | hard | 2 literal `/skillmeister` | 2/2 reached | 2/2 | yes |
 | Claude Code | hard | 4 natural prompts | 0/4 reached | 0/4 | yes |
-| OpenCode | soft | 1 natural prompt | reached, then read the skill | n/a (sample) | n/a |
-| OpenCode | soft | 1 control | not reached | n/a (sample) | n/a |
+| OpenCode | soft | 1 natural prompt | reached, then read the skill | sample only | n/a |
+| OpenCode | soft | 1 control | not reached | sample only | n/a |
 
-Both variants pass in Claude Code.
+In the hard-gate run, 3 of the 4 natural prompts read a `SKILL.md` file
+directly. The spike passes `--add-dir` for the library, so the agent could read
+the files without the shim. The shim was not reached in these runs, so they
+count as passes for the gate. A real install does not give the agent this
+access.
 
 ## Decision
 
-Use the **soft gate**. It passes, and it lets the user ask in plain words. The
-hard gate stays available: add `disable-model-invocation: true` to the shim
-front matter. The MCP fallback is not needed.
+Use the **soft gate** as the default. It passes the Claude Code routing checks,
+and it lets the user ask in plain words. The hard gate stays available: add
+`disable-model-invocation: true` to the shim front matter. The MCP fallback
+stays unbuilt, because the soft gate passed in one harness. The decision is
+provisional until the open checks below are done.
 
 ## Not measured
 
 The spike did not measure these items. Phase 3 must check them with the real
 install before the v0.1 definition of done is met.
 
-- Project scope was used, not user scope. The check that "both discovery paths
-  list exactly one entry" is not done. Both paths exist only after
-  `install.sh` renders two shims.
-- Skill state after compaction was not tested.
+- The plan requires, for each variant, exactly one list entry when both
+  discovery paths exist. The spike used project scope with one path. Both user
+  paths exist only after `install.sh` renders two shims.
+- The spike did not test whether the loaded skill stays active after
+  compaction.
 - OpenCode has a sample of 2 runs, not the full protocol.
-- Whether Claude Code reads `~/.agents/skills` is not tested.
-- Whether OpenCode honors `disable-model-invocation` is not tested.
+- The spike did not test whether Claude Code reads `~/.agents/skills`.
+- The spike did not test whether OpenCode honors `disable-model-invocation`.
+- The spike did not test the exact invocation spelling for each harness.
+- The spike did not test the permission-rule syntax in a settings file, or
+  whether it belongs in user or project settings.
