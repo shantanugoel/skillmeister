@@ -149,31 +149,50 @@ func cmdAdd(g *globals, args []string) error {
 			fmt.Fprintf(g.env.Stderr, "skillmeister: warning: pack %s is %.1f MB; keep large binary assets in their own pack\n", name, float64(staged.Size)/(1<<20))
 		}
 
-		if err := pack.Swap(lib.Root, staged, name); err != nil {
+		tomb, err := pack.SwapKeep(lib.Root, staged, name)
+		if err != nil {
 			return ioErr(fmt.Errorf("add %s: move into place: %w", name, err))
 		}
-		// Order: files, lock, manifest. A crash leaves an orphan that doctor
-		// reports and sync repairs.
+		// A forced replace keeps the old pack until the lock and manifest are
+		// written. On failure, the old pack and the old lock come back. A new
+		// pack that fails here stays as an orphan that doctor reports and sync
+		// repairs.
+		prevLock, err := lock.Read(lib.Root)
+		if err != nil {
+			return ioErr(err)
+		}
+		prevBytes, err := prevLock.Marshal()
+		if err != nil {
+			return ioErr(err)
+		}
+		fail := func(err error) error {
+			if tomb != "" {
+				if rerr := pack.RestoreTombstone(lib.Root, tomb, name); rerr != nil {
+					err = fmt.Errorf("%w (and the old pack could not be restored from %s: %v)", err, tomb, rerr)
+				}
+				if werr := lock.WriteFileAtomic(lib.Root, lock.FileName, prevBytes, 0o644); werr != nil {
+					err = fmt.Errorf("%w (and the old lock could not be restored: %v)", err, werr)
+				}
+			}
+			return err
+		}
+		// Order: files, lock, manifest.
 		if fetch != manifest.FetchLocal {
 			tree, err := lock.HashTree(lib.Root, path.Join(pack.PacksDir, name))
 			if err != nil {
-				return ioErr(err)
+				return fail(ioErr(err))
 			}
-			lk, err := lock.Read(lib.Root)
-			if err != nil {
-				return ioErr(err)
-			}
-			lk.Packs[name] = lock.Entry{Fetch: string(fetch), Resolved: staged.Resolved, Tree: tree}
-			if err := lk.Write(lib.Root); err != nil {
-				return ioErr(err)
+			prevLock.Packs[name] = lock.Entry{Fetch: string(fetch), Resolved: staged.Resolved, Tree: tree}
+			if err := prevLock.Write(lib.Root); err != nil {
+				return fail(ioErr(err))
 			}
 			if err := pack.MergeSkillsLock(lib.Root, staged.LockEntries); err != nil {
-				return ioErr(err)
+				return fail(ioErr(err))
 			}
 		}
 		doc, err := manifest.OpenDoc(lib.Root)
 		if err != nil {
-			return usageErr("%v", err)
+			return fail(usageErr("%v", err))
 		}
 		pathField := staged.Path
 		if fetch == manifest.FetchLocal {
@@ -195,9 +214,12 @@ func cmdAdd(g *globals, args []string) error {
 			err = updateExisting(doc, existing, spec, pathField, source, trust)
 		}
 		if err != nil {
-			return ioErr(err)
+			return fail(ioErr(err))
 		}
 		if err := doc.Save(lib.Root); err != nil {
+			return fail(ioErr(err))
+		}
+		if err := pack.DropTombstone(lib.Root, tomb); err != nil {
 			return ioErr(err)
 		}
 		g.summarizeAdd(lib, name, fetch, staged, trust, existing)

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/shantanugoel/skillmeister/internal/manifest"
 )
@@ -34,6 +35,10 @@ func Fetch(root *os.Root, spec Spec) (*Staged, error) {
 		return nil, err
 	}
 	s.Work = work
+	if err := CheckLinks(root, s.Dir); err != nil {
+		root.RemoveAll(work)
+		return nil, err
+	}
 	size, err := treeSize(root, s.Dir)
 	if err != nil {
 		root.RemoveAll(work)
@@ -45,7 +50,15 @@ func Fetch(root *os.Root, spec Spec) (*Staged, error) {
 
 // normalizeMove renames skill directories from srcDir (inside the root) into
 // work/pack with normalized names.
-func normalizeMove(root *os.Root, work, srcDir string) (*Staged, error) {
+//
+// srcDir must lie inside the directory base, with no symlink that leaves base.
+// A fetched repo can hold a symlink such as skills -> ../../../skills, and
+// os.Root follows links that stay inside the library, so without this check a
+// pack could take the library's own skills.
+func normalizeMove(root *os.Root, work, base, srcDir string) (*Staged, error) {
+	if err := confine(root, base, srcDir); err != nil {
+		return nil, err
+	}
 	dstDir := path.Join(work, "pack")
 	if err := root.Mkdir(dstDir, 0o755); err != nil {
 		return nil, err
@@ -57,6 +70,24 @@ func normalizeMove(root *os.Root, work, srcDir string) (*Staged, error) {
 		return nil, err
 	}
 	return &Staged{Dir: dstDir, Skills: skills, Renamed: renamed}, nil
+}
+
+// confine checks that dir resolves to a place inside base. It opens base as its
+// own root, so a symlink that leaves base fails.
+func confine(root *os.Root, base, dir string) error {
+	br, err := root.OpenRoot(base)
+	if err != nil {
+		return err
+	}
+	defer br.Close()
+	rel := strings.TrimPrefix(strings.TrimPrefix(dir, base), "/")
+	if rel == "" {
+		rel = "."
+	}
+	if _, err := br.Stat(rel); err != nil {
+		return fmt.Errorf("the skills directory %q is not inside the fetched source: %w", rel, err)
+	}
+	return nil
 }
 
 // hasSkills reports whether dir (inside the root) has a skill subdirectory.

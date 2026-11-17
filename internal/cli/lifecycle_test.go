@@ -77,6 +77,18 @@ func gitRepo(t *testing.T, files map[string]string) (url, head string) {
 	for p, c := range files {
 		write(t, dir, p, c)
 	}
+	return "file://" + dir, commitHead(t, dir)
+}
+
+// commitAll commits everything in dir and returns its file:// URL.
+func commitAll(t *testing.T, dir string) string {
+	t.Helper()
+	commitHead(t, dir)
+	return "file://" + dir
+}
+
+func commitHead(t *testing.T, dir string) string {
+	t.Helper()
 	git := func(args ...string) string {
 		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}, args...)...)
 		cmd.Dir = dir
@@ -90,7 +102,7 @@ func gitRepo(t *testing.T, files map[string]string) (url, head string) {
 	git("init", "-q", "-b", "main")
 	git("add", "-A")
 	git("commit", "-q", "-m", "init")
-	return "file://" + dir, git("rev-parse", "HEAD")
+	return git("rev-parse", "HEAD")
 }
 
 // tree lists every file under dir with its content, except the named paths.

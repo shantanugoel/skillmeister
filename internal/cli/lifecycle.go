@@ -223,7 +223,7 @@ func cmdRemove(g *globals, args []string) error {
 				return ioErr(err)
 			}
 		}
-		if p.Fetch == manifest.FetchNPX {
+		if p.Fetch == manifest.FetchNPX && !sourceShared(lib.Manifest, name, p.Source) {
 			if err := pack.DropSkillsLock(lib.Root, p.Source); err != nil {
 				return ioErr(err)
 			}
@@ -249,4 +249,16 @@ func cmdRemove(g *globals, args []string) error {
 		}
 		return nil
 	})
+}
+
+// sourceShared reports whether another npx pack uses the same source. The root
+// skills-lock.json is keyed by skill name, so its entries are dropped only when
+// no other pack could own them.
+func sourceShared(m *manifest.Manifest, except, source string) bool {
+	for n, p := range m.Packs {
+		if n != except && p.Fetch == manifest.FetchNPX && p.Source == source {
+			return true
+		}
+	}
+	return false
 }

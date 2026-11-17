@@ -20,7 +20,7 @@ func run(dir string, env []string, name string, args ...string) (string, error) 
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), append([]string{"GIT_TERMINAL_PROMPT=0", "CI=1"}, env...)...)
+	cmd.Env = append(os.Environ(), append([]string{"GIT_TERMINAL_PROMPT=0", "CI=1", "GIT_ALLOW_PROTOCOL=file:git:http:https:ssh"}, env...)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

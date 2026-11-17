@@ -61,12 +61,14 @@ func fetchNPX(root *os.Root, work string, spec Spec) (*Staged, error) {
 	if err := json.Unmarshal(lockData, &lock); err != nil {
 		return nil, fmt.Errorf("%s from the `skills` CLI: %w", SkillsLockName, err)
 	}
-	s, err := normalizeMove(root, work, srcDir)
+	s, err := normalizeMove(root, work, work, srcDir)
 	if err != nil {
 		return nil, err
 	}
-	// The lock is keyed by the installed skill name. Keep the entries of the
-	// skills that were staged, under the normalized name.
+	// The `skills` CLI keys its lock by the installed skill name, and so does the
+	// root skills-lock.json. Two packs that hold a skill of the same name share
+	// one key there; the later add wins. skillmeister.lock.json is the router
+	// lock and is keyed by pack, so this does not affect drift checks.
 	s.LockEntries = map[string][]byte{}
 	commits := map[string]bool{}
 	names := make([]string, 0, len(lock.Skills))

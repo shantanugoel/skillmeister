@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -178,27 +179,160 @@ func Exists(root *os.Root, rel string) bool {
 
 // Swap moves the staged pack into packs/<name>. An existing pack is renamed to
 // a tombstone in .removed first, so a concurrent reader sees entirely old
-// content, a missing pack, or entirely new content, never a partial tree.
+// content, a missing pack, or entirely new content, never a partial tree. Swap
+// deletes the tombstone.
 func Swap(root *os.Root, s *Staged, name string) error {
+	tomb, err := SwapKeep(root, s, name)
+	if err != nil {
+		return err
+	}
+	return DropTombstone(root, tomb)
+}
+
+// SwapKeep is Swap, but it keeps the tombstone and returns its path ("" when
+// there was no old pack). The caller deletes it with DropTombstone when the lock
+// and manifest are written, or puts the old pack back with RestoreTombstone.
+func SwapKeep(root *os.Root, s *Staged, name string) (string, error) {
 	dest := path.Join(PacksDir, name)
 	if err := root.MkdirAll(PacksDir, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	if !Exists(root, dest) {
-		return root.Rename(s.Dir, dest)
+		return "", root.Rename(s.Dir, dest)
 	}
 	if err := root.MkdirAll(RemovedDir, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	tomb := path.Join(RemovedDir, fmt.Sprintf("%s%s-%d", SwapPrefix, name, time.Now().UnixNano()))
 	if err := root.Rename(dest, tomb); err != nil {
-		return err
+		return "", err
 	}
 	if err := root.Rename(s.Dir, dest); err != nil {
 		root.Rename(tomb, dest) // put the old pack back
-		return err
+		return "", err
+	}
+	return tomb, nil
+}
+
+// DropTombstone deletes a tombstone. An empty path is a no-op.
+func DropTombstone(root *os.Root, tomb string) error {
+	if tomb == "" {
+		return nil
 	}
 	return root.RemoveAll(tomb)
+}
+
+// RestoreTombstone replaces packs/<name> with the old pack in the tombstone.
+func RestoreTombstone(root *os.Root, tomb, name string) error {
+	if tomb == "" {
+		return nil
+	}
+	dest := path.Join(PacksDir, name)
+	if err := root.RemoveAll(dest); err != nil {
+		return err
+	}
+	return root.Rename(tomb, dest)
+}
+
+var tombRE = regexp.MustCompile(`^` + regexp.QuoteMeta(SwapPrefix) + `(.+)-\d+$`)
+
+// TombstonePack returns the pack name that a tombstone directory name holds.
+func TombstonePack(dirName string) (string, bool) {
+	m := tombRE.FindStringSubmatch(dirName)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
+// RecoverTombstones puts back the old pack from a tombstone when the pack
+// directory is missing. A crash between the two renames of a swap leaves that
+// state, and the tombstone then holds the only copy. It returns the packs that
+// it recovered.
+func RecoverTombstones(root *os.Root, known func(name string) bool) ([]string, error) {
+	f, err := root.Open(RemovedDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	entries, err := f.ReadDir(-1)
+	f.Close()
+	if err != nil {
+		return nil, err
+	}
+	var recovered []string
+	for _, e := range entries {
+		name, ok := TombstonePack(e.Name())
+		if !ok || !known(name) || Exists(root, path.Join(PacksDir, name)) {
+			continue
+		}
+		if err := root.MkdirAll(PacksDir, 0o755); err != nil {
+			return recovered, err
+		}
+		if err := root.Rename(path.Join(RemovedDir, e.Name()), path.Join(PacksDir, name)); err != nil {
+			return recovered, err
+		}
+		recovered = append(recovered, name)
+	}
+	return recovered, nil
+}
+
+// CheckLinks rejects a staged pack that holds a symlink which leaves its skill
+// directory. A skill may link to its own files and to nothing else, because the
+// agent follows links when it reads supporting files.
+func CheckLinks(root *os.Root, dir string) error {
+	f, err := root.Open(dir)
+	if err != nil {
+		return err
+	}
+	skills, err := f.ReadDir(-1)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	var bad []string
+	for _, sk := range skills {
+		top := path.Join(dir, sk.Name())
+		var walk func(rel string) error
+		walk = func(rel string) error {
+			d, err := root.Open(rel)
+			if err != nil {
+				return err
+			}
+			items, err := d.ReadDir(-1)
+			d.Close()
+			if err != nil {
+				return err
+			}
+			for _, it := range items {
+				p := path.Join(rel, it.Name())
+				switch {
+				case it.Type()&fs.ModeSymlink != 0:
+					target, err := root.Readlink(p)
+					if err != nil || !linkStaysInside(top, p, target) {
+						bad = append(bad, strings.TrimPrefix(p, dir+"/")+" -> "+target)
+					}
+				case it.IsDir():
+					if err := walk(p); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}
+		if sk.IsDir() {
+			if err := walk(top); err != nil {
+				return err
+			}
+		}
+	}
+	if len(bad) > 0 {
+		sort.Strings(bad)
+		return fmt.Errorf("the pack has symlinks that leave their skill directory: %s", strings.Join(bad, ", "))
+	}
+	return nil
 }
 
 // Quarantine moves packs/<name> to .removed/<name>. When that name is taken,

@@ -279,7 +279,12 @@ func (c *checker) checkOrphans() {
 	if entries, err := c.lib.ReadDir(pack.RemovedDir); err == nil {
 		for _, e := range entries {
 			if strings.HasPrefix(e.Name(), pack.SwapPrefix) {
-				c.add(Error, CodeTombstone, "", path.Join(pack.RemovedDir, e.Name()), "a crash left a swap tombstone; `sync` deletes it")
+				name, _ := pack.TombstonePack(e.Name())
+				msg := "a crash left a swap tombstone; `sync` deletes it"
+				if m.Packs[name] != nil && !pack.Exists(c.lib.Root, path.Join(pack.PacksDir, name)) {
+					msg = "a crash left the old pack only here; `sync` puts it back"
+				}
+				c.add(Error, CodeTombstone, name, path.Join(pack.RemovedDir, e.Name()), "%s", msg)
 			}
 		}
 	}

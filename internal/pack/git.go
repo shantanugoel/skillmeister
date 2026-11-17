@@ -61,10 +61,16 @@ func fetchGit(root *os.Root, work string, spec Spec) (*Staged, error) {
 		if c != "" {
 			dir = path.Join(repo, c)
 		}
+		if err := confine(root, repo, dir); err != nil {
+			if spec.Path != "" {
+				return nil, err
+			}
+			continue
+		}
 		if !hasSkills(root, dir) {
 			continue
 		}
-		s, err := normalizeMove(root, work, dir)
+		s, err := normalizeMove(root, work, repo, dir)
 		if err != nil {
 			return nil, err
 		}

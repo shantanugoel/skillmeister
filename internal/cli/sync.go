@@ -52,6 +52,15 @@ func syncFrozen(g *globals) error {
 // orphan pack directories to .removed, drops orphan lock entries, and deletes
 // leftovers of a crash. It never overwrites a modified pinned pack.
 func syncRepair(g *globals, lib *library.Library) error {
+	// A crash in the middle of a swap leaves the old pack only in a tombstone.
+	// Put it back before anything is deleted.
+	recovered, err := pack.RecoverTombstones(lib.Root, func(name string) bool { return lib.Manifest.Packs[name] != nil })
+	if err != nil {
+		return ioErr(err)
+	}
+	for _, name := range recovered {
+		g.printf("recovered pack %s from an interrupted swap\n", name)
+	}
 	rep, err := doctor.Run(lib)
 	if err != nil {
 		return ioErr(err)
