@@ -26,6 +26,9 @@ func fetchGit(root *os.Root, work string, spec Spec) (*Staged, error) {
 	if _, err := run(abs, nil, "git", "init", "-q"); err != nil {
 		return nil, err
 	}
+	if _, err := run(abs, nil, "git", "config", "core.hooksPath", os.DevNull); err != nil {
+		return nil, err
+	}
 	if _, err := run(abs, nil, "git", "remote", "add", "origin", spec.URL); err != nil {
 		return nil, err
 	}
@@ -43,8 +46,8 @@ func fetchGit(root *os.Root, work string, spec Spec) (*Staged, error) {
 		if _, err := run(abs, nil, "git", "fetch", "-q", "--tags", "origin"); err != nil {
 			return nil, fmt.Errorf("fetch %s: %w", spec.URL, err)
 		}
-		if _, err := run(abs, nil, "git", "checkout", "-q", "--detach", ref); err != nil {
-			return nil, fmt.Errorf("checkout %s: %w", ref, err)
+		if err := checkoutFallback(abs, ref); err != nil {
+			return nil, err
 		}
 	}
 	head, err := run(abs, nil, "git", "rev-parse", "HEAD")
@@ -99,6 +102,28 @@ func fetchGit(root *os.Root, work string, spec Spec) (*Staged, error) {
 		return s, nil
 	}
 	return nil, fmt.Errorf("%s: %w (looked in %s)", spec.URL, errNoSkills, strings.Join(quoteAll(candidates), ", "))
+}
+
+// checkoutFallback checks out ref after a full `git fetch --tags origin`.
+// Branches live under refs/remotes/origin/, and the remote default branch is
+// resolved explicitly rather than relying on FETCH_HEAD order.
+func checkoutFallback(abs, ref string) error {
+	if ref == "HEAD" {
+		if _, err := run(abs, nil, "git", "remote", "set-head", "origin", "-a"); err != nil {
+			return fmt.Errorf("resolve remote HEAD: %w", err)
+		}
+		if _, err := run(abs, nil, "git", "checkout", "-q", "--detach", "refs/remotes/origin/HEAD"); err != nil {
+			return fmt.Errorf("checkout HEAD: %w", err)
+		}
+		return nil
+	}
+	if _, err := run(abs, nil, "git", "checkout", "-q", "--detach", ref); err != nil {
+		remoteRef := "refs/remotes/origin/" + strings.TrimPrefix(ref, "refs/heads/")
+		if _, err2 := run(abs, nil, "git", "checkout", "-q", "--detach", remoteRef); err2 != nil {
+			return fmt.Errorf("checkout %s: %w", ref, err)
+		}
+	}
+	return nil
 }
 
 // rootNotes describes what a single skill at the clone root leaves out.
