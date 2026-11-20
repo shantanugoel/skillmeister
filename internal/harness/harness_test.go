@@ -22,7 +22,17 @@ func TestRender(t *testing.T) {
 			t.Errorf("the shim lacks %s", want)
 		}
 	}
-	for _, bad := range [][2]string{{"rel/sm", "/lib"}, {"/bin/sm", "lib"}, {`/bin/"x`, "/lib"}, {"/bin/sm", "/li\nb"}} {
+	for _, bad := range [][2]string{
+		{"rel/sm", "/lib"},
+		{"/bin/sm", "lib"},
+		{`/bin/"x`, "/lib"},
+		{"/bin/sm", "/li\nb"},
+		{"/bin/sm", "/li\rb"},
+		{"/bin/sm$(id)", "/lib"},
+		{"/bin/sm", "/lib/$HOME"},
+		{"/bin/`id`", "/lib"},
+		{"/bin/sm", `/lib/trail\`},
+	} {
 		if _, err := Render([]byte(tmpl), bad[0], bad[1]); err == nil {
 			t.Errorf("Render(%q, %q) must fail", bad[0], bad[1])
 		}

@@ -30,15 +30,15 @@ const (
 )
 
 // Render fills the shim template with the absolute binary and library paths.
-// The paths sit inside double quotes in the shim, so they cannot hold a quote
-// or a newline.
+// The paths sit inside double quotes in the shim's shell commands, so they
+// cannot hold characters that break or expand inside double quotes.
 func Render(tmpl []byte, bin, root string) ([]byte, error) {
 	for _, p := range []string{bin, root} {
 		if !filepath.IsAbs(p) {
 			return nil, fmt.Errorf("path %q is not absolute", p)
 		}
-		if strings.ContainsAny(p, "\"\n\r") {
-			return nil, fmt.Errorf("path %q contains a quote or a newline", p)
+		if strings.ContainsAny(p, "\"\\$`\n\r") {
+			return nil, fmt.Errorf("path %q contains a character that is not safe inside the shim's quoted command line", p)
 		}
 	}
 	return []byte(strings.NewReplacer("{{BIN}}", bin, "{{ROOT}}", root).Replace(string(tmpl))), nil
