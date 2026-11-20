@@ -87,15 +87,20 @@ func normalizeMove(root *os.Root, work, base, srcDir string) (*Staged, error) {
 // confine checks that dir resolves to a place inside base. It opens base as its
 // own root, so a symlink that leaves base fails.
 func confine(root *os.Root, base, dir string) error {
+	var rel string
+	switch {
+	case dir == base:
+		rel = "."
+	case strings.HasPrefix(dir, base+"/"):
+		rel = strings.TrimPrefix(dir, base+"/")
+	default:
+		return fmt.Errorf("the skills directory %q is not inside %q", dir, base)
+	}
 	br, err := root.OpenRoot(base)
 	if err != nil {
 		return err
 	}
 	defer br.Close()
-	rel := strings.TrimPrefix(strings.TrimPrefix(dir, base), "/")
-	if rel == "" {
-		rel = "."
-	}
 	if _, err := br.Stat(rel); err != nil {
 		return fmt.Errorf("the skills directory %q is not inside the fetched source: %w", rel, err)
 	}

@@ -195,22 +195,28 @@ func Swap(root *os.Root, s *Staged, name string) error {
 // there was no old pack). The caller deletes it with DropTombstone when the lock
 // and manifest are written, or puts the old pack back with RestoreTombstone.
 func SwapKeep(root *os.Root, s *Staged, name string) (string, error) {
+	return swapKeep(root, s, name, root.Rename)
+}
+
+func swapKeep(root *os.Root, s *Staged, name string, rename func(oldname, newname string) error) (string, error) {
 	dest := path.Join(PacksDir, name)
 	if err := root.MkdirAll(PacksDir, 0o755); err != nil {
 		return "", err
 	}
 	if !Exists(root, dest) {
-		return "", root.Rename(s.Dir, dest)
+		return "", rename(s.Dir, dest)
 	}
 	if err := root.MkdirAll(RemovedDir, 0o755); err != nil {
 		return "", err
 	}
 	tomb := path.Join(RemovedDir, fmt.Sprintf("%s%s-%d", SwapPrefix, name, time.Now().UnixNano()))
-	if err := root.Rename(dest, tomb); err != nil {
+	if err := rename(dest, tomb); err != nil {
 		return "", err
 	}
-	if err := root.Rename(s.Dir, dest); err != nil {
-		root.Rename(tomb, dest) // put the old pack back
+	if err := rename(s.Dir, dest); err != nil {
+		if rerr := rename(tomb, dest); rerr != nil {
+			return "", fmt.Errorf("%w (and the old pack could not be restored from %s: %v)", err, tomb, rerr)
+		}
 		return "", err
 	}
 	return tomb, nil
