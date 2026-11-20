@@ -25,9 +25,9 @@ The command prints one JSON object per line. Use these fields: `id`, `name`,
   still no records, tell the user that nothing matched. Say that adding `--all`
   searches disabled skills too. Do not add `--all` yourself.
 - Non-zero exit: show the stderr line to the user and stop.
-- Two top results with the same score: use the descriptions to choose. If the
-  descriptions do not make the choice clear, ask the user. Equal scores are
-  usual. They are not a reason to ask.
+- Two top results with the same score: use the descriptions to choose. Equal
+  scores are usual and are not by themselves a reason to ask; ask the user
+  only when the descriptions do not make the choice clear.
 
 ## Load a skill
 

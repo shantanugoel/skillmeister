@@ -276,7 +276,7 @@ skillmeister sync                      # repair: restore missing packs, prune or
 skillmeister sync --frozen             # verify only: writes nothing, exits 2 on drift
 ```
 
-- `update --check` may run `git ls-remote` or `npm view`; "read-only" means no
+- `update --check` runs `git ls-remote`; "read-only" means no
   library writes, not no network.
 - `update --apply` asks for confirmation, then stages a full copy, renames the old pack to `.removed/.swap-*`,
   renames the new pack into place, then deletes the tombstone. A concurrent `find`
@@ -518,5 +518,5 @@ Native semantics are the big one: routed skills are plain text and get no
   the project.
 - Search is lexical in v1. That matches prior art and is enough at hundreds of
   skills; embeddings are a later, measurable decision.
-- Windows is untested. Rendered shims avoid the symlink-privilege problem, but
-  nothing else has been exercised there.
+- Windows is not supported. The binary targets macOS and Linux only (writer
+  locking uses Unix `flock`, and path and shim checks assume Unix).

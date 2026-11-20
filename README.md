@@ -174,6 +174,12 @@ I/O error, lock contention, or subprocess failure.
 when stdin is not a terminal), and then swaps the pack. It also restores the
 upstream content of a modified pinned pack.
 
+`doctor` checks the library and also verifies the two shims under `$HOME`
+(`~/.agents/skills/skillmeister/SKILL.md` and
+`~/.claude/skills/skillmeister/SKILL.md`); missing or stale shims are errors
+that make `doctor` exit `2`. Pass `HOME=""` to skip the two shim checks, or use
+`sync --frozen` in CI for a read-only library integrity check.
+
 `doctor --security` adds lexical heuristics: bundled scripts, `curl | sh`,
 `sudo`, `eval`, base64 blobs, secret paths, broad `allowed-tools`, `!` lines,
 and `../` paths that leave the pack directory. A hit in a pack that you declared
