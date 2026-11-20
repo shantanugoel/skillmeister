@@ -45,6 +45,9 @@ type Library struct {
 // ErrNotLibrary means that a directory is missing or has no manifest.
 var ErrNotLibrary = errors.New("not a library")
 
+// ErrTooLarge means that a file exceeded MaxSkillFile.
+var ErrTooLarge = errors.New("larger than 1 MB")
+
 // Open opens the library at dir and loads its manifest.
 func Open(dir string) (*Library, error) {
 	abs, err := filepath.Abs(dir)
@@ -274,7 +277,7 @@ func (l *Library) readBounded(rel string) ([]byte, error) {
 		return nil, errors.New("not a regular file")
 	}
 	if st.Size() > MaxSkillFile {
-		return nil, fmt.Errorf("%s is larger than 1 MB", path.Base(rel))
+		return nil, fmt.Errorf("%s is %w", path.Base(rel), ErrTooLarge)
 	}
 	return io.ReadAll(io.LimitReader(f, MaxSkillFile+1))
 }

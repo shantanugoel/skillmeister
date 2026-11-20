@@ -174,7 +174,7 @@ func scanSkill(lib *library.Library, p *manifest.Pack, r *library.Record) ([]Hit
 	var hits []Hit
 	files, truncated, err := lib.Inventory(r)
 	if err != nil {
-		return nil, err
+		add(&hits, RuleIncomplete, "-", 0, fmt.Sprintf("the skill directory could not be read in full: %v", err))
 	}
 	if truncated {
 		add(&hits, RuleIncomplete, "-", 0, "the skill has too many files; some were not scanned")
@@ -192,10 +192,15 @@ func scanSkill(lib *library.Library, p *manifest.Pack, r *library.Record) ([]Hit
 		}
 		data, err := lib.ReadFileBounded(path.Join(r.Dir, f.Path))
 		if err != nil {
-			if isSkip(err) {
+			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			return nil, err
+			if errors.Is(err, library.ErrTooLarge) {
+				add(&hits, RuleIncomplete, f.Path, 0, "the file is larger than 1 MB and was not scanned")
+				continue
+			}
+			add(&hits, RuleIncomplete, f.Path, 0, fmt.Sprintf("the file could not be read: %v", err))
+			continue
 		}
 		if bytes.IndexByte(data, 0) >= 0 {
 			continue // binary
@@ -214,11 +219,6 @@ func scanSkill(lib *library.Library, p *manifest.Pack, r *library.Record) ([]Hit
 		}
 	}
 	return hits, nil
-}
-
-// isSkip reports a read error that only means "do not scan this file".
-func isSkip(err error) bool {
-	return errors.Is(err, fs.ErrNotExist) || strings.Contains(err.Error(), "larger than")
 }
 
 // broadTools reports whether an allowed-tools value grants every tool or all of
