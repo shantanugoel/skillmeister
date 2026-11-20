@@ -99,6 +99,127 @@ func TestHostileSymlinksInsideSkillsAreRejected(t *testing.T) {
 	mustOK(t, run(t, dir, "doctor"))
 }
 
+func TestDoctorCatchesPostInstallSymlinkEscapes(t *testing.T) {
+	dir := newLib(t)
+	url, _ := gitRepo(t, map[string]string{"skills/a/SKILL.md": skillMD("a", "A.")})
+	mustOK(t, run(t, dir, "add", "--as", "p", url))
+	mustOK(t, run(t, dir, "doctor"))
+	mustOK(t, run(t, dir, "sync", "--frozen"))
+
+	// An escaping symlink added inside a skill after install must fail doctor,
+	// sync --frozen, and sync.
+	leak := filepath.Join(dir, "packs", "p", "a", "leak")
+	if err := os.Symlink("/etc/passwd", leak); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	if r := run(t, dir, "doctor"); r.code != ExitDrift || !strings.Contains(r.out, "symlink-escape") {
+		t.Fatalf("doctor after escaping symlink: exit %d\n%s\n%s", r.code, r.out, r.err)
+	}
+	if r := run(t, dir, "sync", "--frozen"); r.code != ExitDrift || !strings.Contains(r.out, "symlink-escape") {
+		t.Fatalf("sync --frozen after escaping symlink: exit %d\n%s\n%s", r.code, r.out, r.err)
+	}
+	if r := run(t, dir, "sync"); r.code != ExitDrift || !strings.Contains(r.err, "symlinks that leave") {
+		t.Fatalf("sync after escaping symlink: exit %d\n%s\n%s", r.code, r.out, r.err)
+	}
+	os.Remove(leak)
+	mustOK(t, run(t, dir, "doctor"))
+
+	// Chained intermediate symlinks that stay inside lexically but escape at
+	// runtime must also be caught.
+	deepDir := filepath.Join(dir, "packs", "p", "a", "deep", "d1", "d2")
+	if err := os.MkdirAll(deepDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../..", filepath.Join(deepDir, "in")); err != nil {
+		t.Fatal(err)
+	}
+	chain := filepath.Join(dir, "packs", "p", "a", "chain")
+	if err := os.Symlink("deep/d1/d2/in/../../..", chain); err != nil {
+		t.Fatal(err)
+	}
+	if r := run(t, dir, "doctor"); r.code != ExitDrift || !strings.Contains(r.out, "symlink-escape") {
+		t.Fatalf("doctor after chained symlink escape: exit %d\n%s\n%s", r.code, r.out, r.err)
+	}
+	os.Remove(chain)
+	os.RemoveAll(filepath.Join(dir, "packs", "p", "a", "deep"))
+	mustOK(t, run(t, dir, "doctor"))
+
+	// A skill directory that is itself a symlink is also caught.
+	symSkill := filepath.Join(dir, "packs", "p", "linked")
+	if err := os.Symlink(filepath.Join(dir, "skills", "alpha"), symSkill); err != nil {
+		t.Fatal(err)
+	}
+	if r := run(t, dir, "doctor"); r.code != ExitDrift || !strings.Contains(r.out, "symlink-escape") {
+		t.Fatalf("doctor after symlinked skill dir: exit %d\n%s\n%s", r.code, r.out, r.err)
+	}
+	os.Remove(symSkill)
+
+	// A pack directory replaced with a symlink is caught as symlink-escape.
+	packDir := filepath.Join(dir, "packs", "p")
+	backup := filepath.Join(t.TempDir(), "p")
+	if err := os.Rename(packDir, backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(backup, packDir); err != nil {
+		t.Fatal(err)
+	}
+	if r := run(t, dir, "doctor"); r.code != ExitDrift || !strings.Contains(r.out, "symlink-escape") {
+		t.Fatalf("doctor after symlinked pack dir: exit %d\n%s\n%s", r.code, r.out, r.err)
+	}
+	os.Remove(packDir)
+	if err := os.Rename(backup, packDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// own: hidden and non-skill directories are left alone, while symlinks
+	// inside discovered skills and symlinked skill dirs are caught.
+	write(t, dir, "skills/.hidden/note.txt", "ok")
+	write(t, dir, "skills/notes/readme.txt", "not a skill")
+	mustOK(t, run(t, dir, "doctor"))
+
+	ownLeak := filepath.Join(dir, "skills", "alpha", "leak")
+	if err := os.Symlink("/etc/passwd", ownLeak); err != nil {
+		t.Fatal(err)
+	}
+	if r := run(t, dir, "doctor"); r.code != ExitDrift || !strings.Contains(r.out, "symlink-escape") {
+		t.Fatalf("doctor after own skill escaping symlink: exit %d\n%s\n%s", r.code, r.out, r.err)
+	}
+	os.Remove(ownLeak)
+
+	ownSym := filepath.Join(dir, "skills", "linked")
+	if err := os.Symlink(filepath.Join(dir, "skills", "alpha"), ownSym); err != nil {
+		t.Fatal(err)
+	}
+	if r := run(t, dir, "doctor"); r.code != ExitDrift || !strings.Contains(r.out, "symlink-escape") {
+		t.Fatalf("doctor after own symlinked skill dir: exit %d\n%s\n%s", r.code, r.out, r.err)
+	}
+	os.Remove(ownSym)
+	mustOK(t, run(t, dir, "doctor"))
+
+	// An unreadable subdirectory is reported as unreadable-pack, not symlink-escape.
+	if os.Getuid() != 0 {
+		blocked := filepath.Join(dir, "packs", "p", "a", "blocked")
+		if err := os.MkdirAll(blocked, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(blocked, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(blocked, 0o755)
+		if _, err := os.ReadDir(blocked); err == nil {
+			t.Skip("filesystem ignores chmod 000")
+		}
+		r := run(t, dir, "doctor")
+		if r.code != ExitDrift || !strings.Contains(r.out, "unreadable-pack") || strings.Contains(r.out, "symlink-escape") {
+			t.Fatalf("doctor on unreadable dir: exit %d\n%s\n%s", r.code, r.out, r.err)
+		}
+		if r := run(t, dir, "sync", "--frozen"); r.code != ExitDrift || !strings.Contains(r.out, "unreadable-pack") {
+			t.Fatalf("sync --frozen on unreadable dir: exit %d\n%s\n%s", r.code, r.out, r.err)
+		}
+		os.Chmod(blocked, 0o755)
+	}
+}
+
 func TestPathHintCannotEscapeClone(t *testing.T) {
 	dir := newLib(t)
 	url, _ := gitRepo(t, map[string]string{"x/a/SKILL.md": skillMD("a", "A.")})

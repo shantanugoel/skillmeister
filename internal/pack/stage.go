@@ -281,12 +281,25 @@ func RecoverTombstones(root *os.Root, known func(name string) bool) ([]string, e
 	return recovered, nil
 }
 
-// CheckLinks rejects a staged pack that holds a symlink which leaves its skill
+// ErrSymlink is returned when a pack or skill contains a symlink that leaves
+// its skill directory.
+var ErrSymlink = errors.New("the pack has symlinks that leave their skill directory")
+
+// CheckLinks rejects a pack directory that is itself a symlink, has a
+// symlinked skill directory, or holds a symlink which leaves its skill
 // directory. A skill may link to its own files and to nothing else, because the
 // agent follows links when it reads supporting files. This is stricter than the
 // pack directory that the shim lets the agent read: a path in a body is in plain
 // view, but a link is followed with no sign.
 func CheckLinks(root *os.Root, dir string) error {
+	st, err := root.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if st.Mode()&fs.ModeSymlink != 0 {
+		target, _ := root.Readlink(dir)
+		return fmt.Errorf("%w: %s -> %s", ErrSymlink, dir, target)
+	}
 	f, err := root.Open(dir)
 	if err != nil {
 		return err
@@ -304,44 +317,95 @@ func CheckLinks(root *os.Root, dir string) error {
 			bad = append(bad, sk.Name()+" -> "+target)
 			continue
 		}
-		var walk func(rel string) error
-		walk = func(rel string) error {
-			d, err := root.Open(rel)
-			if err != nil {
-				return err
-			}
-			items, err := d.ReadDir(-1)
-			d.Close()
-			if err != nil {
-				return err
-			}
-			for _, it := range items {
-				p := path.Join(rel, it.Name())
-				switch {
-				case it.Type()&fs.ModeSymlink != 0:
-					target, err := root.Readlink(p)
-					if err != nil || !linkStaysInside(top, p, target) {
-						bad = append(bad, strings.TrimPrefix(p, dir+"/")+" -> "+target)
-					}
-				case it.IsDir():
-					if err := walk(p); err != nil {
-						return err
-					}
-				}
-			}
-			return nil
-		}
 		if sk.IsDir() {
-			if err := walk(top); err != nil {
+			found, err := checkSkillLinks(root, top, dir)
+			if err != nil {
 				return err
 			}
+			bad = append(bad, found...)
 		}
 	}
 	if len(bad) > 0 {
 		sort.Strings(bad)
-		return fmt.Errorf("the pack has symlinks that leave their skill directory: %s", strings.Join(bad, ", "))
+		return fmt.Errorf("%w: %s", ErrSymlink, strings.Join(bad, ", "))
 	}
 	return nil
+}
+
+// CheckSkillLinks rejects a single skill directory that is a symlink or holds
+// any symlink whose resolution leaves the skill directory.
+func CheckSkillLinks(root *os.Root, skillDir string) error {
+	st, err := root.Lstat(skillDir)
+	if err != nil {
+		return err
+	}
+	if st.Mode()&fs.ModeSymlink != 0 {
+		target, _ := root.Readlink(skillDir)
+		return fmt.Errorf("%w: %s -> %s", ErrSymlink, skillDir, target)
+	}
+	bad, err := checkSkillLinks(root, skillDir, path.Dir(skillDir))
+	if err != nil {
+		return err
+	}
+	if len(bad) > 0 {
+		sort.Strings(bad)
+		return fmt.Errorf("%w: %s", ErrSymlink, strings.Join(bad, ", "))
+	}
+	return nil
+}
+
+// checkSkillLinks walks one skill directory top and reports any symlink that
+// escapes top, either lexically or through intermediate symlinks.
+func checkSkillLinks(root *os.Root, top, labelBase string) ([]string, error) {
+	skillRoot, err := root.OpenRoot(top)
+	if err != nil {
+		return nil, err
+	}
+	defer skillRoot.Close()
+
+	var bad []string
+	var walk func(rel string) error
+	walk = func(rel string) error {
+		d, err := root.Open(rel)
+		if err != nil {
+			return err
+		}
+		items, err := d.ReadDir(-1)
+		d.Close()
+		if err != nil {
+			return err
+		}
+		for _, it := range items {
+			p := path.Join(rel, it.Name())
+			switch {
+			case it.Type()&fs.ModeSymlink != 0:
+				target, err := root.Readlink(p)
+				label := strings.TrimPrefix(p, labelBase+"/")
+				if err != nil || !linkStaysInside(top, p, target) {
+					bad = append(bad, label+" -> "+target)
+					continue
+				}
+				// Also verify resolved target through os.Root confined to top so
+				// chained intermediate symlinks cannot escape top.
+				inSkill := strings.TrimPrefix(p, top+"/")
+				if _, statErr := skillRoot.Stat(inSkill); statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+					if errors.Is(statErr, fs.ErrPermission) {
+						return statErr
+					}
+					bad = append(bad, label+" -> "+target)
+				}
+			case it.IsDir():
+				if err := walk(p); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := walk(top); err != nil {
+		return nil, err
+	}
+	return bad, nil
 }
 
 // Quarantine moves packs/<name> to .removed/<name>. When that name is taken,

@@ -109,7 +109,7 @@ func syncRepair(g *globals, lib *library.Library) error {
 		case doctor.CodeModified:
 			fmt.Fprintf(g.env.Stderr, "skillmeister: %s: %s (sync does not overwrite it)\n", f.Pack, f.Message)
 			unresolved++
-		case doctor.CodeNoLockEntry, doctor.CodeLockMismatch:
+		case doctor.CodeNoLockEntry, doctor.CodeLockMismatch, doctor.CodeSymlink, doctor.CodeUnreadable:
 			fmt.Fprintf(g.env.Stderr, "skillmeister: %s: %s\n", f.Pack, f.Message)
 			unresolved++
 		}

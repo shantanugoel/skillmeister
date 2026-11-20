@@ -43,11 +43,14 @@ const (
 	CodeNested       = "nested-skill"
 	CodeNative       = "native-fields"
 	CodeGitignore    = "gitignore-missing"
+	CodeSymlink      = "symlink-escape"
+	CodeUnreadable   = "unreadable-pack"
 )
 
 var integrity = map[string]bool{
 	CodeMissingPack: true, CodeNoLockEntry: true, CodeLockMismatch: true, CodeModified: true,
-	CodeOrphanPack: true, CodeOrphanLock: true, CodeTombstone: true,
+	CodeOrphanPack: true, CodeOrphanLock: true, CodeTombstone: true, CodeSymlink: true,
+	CodeUnreadable: true,
 }
 
 // IsIntegrity reports whether a code is a drift or integrity code.
@@ -152,9 +155,17 @@ func (c *checker) checkPack(p *manifest.Pack) {
 	dir := p.Dir()
 	entry, locked := c.lk.Packs[p.Name]
 	present := true
-	if _, err := c.lib.ReadDir(dir); err != nil {
+	dirIsSymlink := false
+	if info, lerr := c.lib.Root.Lstat(dir); lerr == nil && info.Mode()&fs.ModeSymlink != 0 {
+		dirIsSymlink = true
+		present = false
+		target, _ := c.lib.Root.Readlink(dir)
+		c.add(Error, CodeSymlink, p.Name, dir, "pack directory %s is a symlink (-> %s)", dir, target)
+	} else if _, err := c.lib.ReadDir(dir); err != nil {
 		present = false
 		switch {
+		case errors.Is(err, fs.ErrPermission):
+			c.add(Error, CodeUnreadable, p.Name, dir, "cannot read directory %s: %v", dir, err)
 		case p.Fetch == manifest.FetchLocal:
 			c.add(Error, CodeMissingPack, p.Name, dir, "directory %s is missing; a local pack cannot be restored", dir)
 		case locked:
@@ -182,7 +193,12 @@ func (c *checker) checkPack(p *manifest.Pack) {
 		}
 	}
 	if present {
+		if p.Name != manifest.OwnPack {
+			c.checkPackLinks(p.Name, dir, pack.CheckLinks(c.lib.Root, dir))
+		}
 		st.Skills = c.checkSkills(p)
+	} else if dirIsSymlink {
+		// Already reported as CodeSymlink above.
 	}
 	c.rep.Packs = append(c.rep.Packs, st)
 }
@@ -195,6 +211,17 @@ func short(h string) string {
 	return h
 }
 
+func (c *checker) checkPackLinks(packName, subject string, err error) {
+	if err == nil {
+		return
+	}
+	if errors.Is(err, pack.ErrSymlink) {
+		c.add(Error, CodeSymlink, packName, subject, "%v", err)
+		return
+	}
+	c.add(Error, CodeUnreadable, packName, subject, "cannot inspect symlinks in %s: %v", subject, err)
+}
+
 // checkSkills inspects every immediate subdirectory of a pack and returns the
 // number of valid skills.
 func (c *checker) checkSkills(p *manifest.Pack) int {
@@ -205,7 +232,18 @@ func (c *checker) checkSkills(p *manifest.Pack) int {
 	}
 	valid := 0
 	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if e.Type()&fs.ModeSymlink != 0 {
+			if p.Name == manifest.OwnPack {
+				skillDir := path.Join(dir, e.Name())
+				target, _ := c.lib.Root.Readlink(skillDir)
+				c.add(Error, CodeSymlink, p.Name, p.Name+"/"+e.Name(), "skill directory %s is a symlink (-> %s); `find` ignores symlinked directories", skillDir, target)
+			}
+			continue
+		}
+		if !e.IsDir() {
 			continue
 		}
 		name := e.Name()
@@ -219,6 +257,9 @@ func (c *checker) checkSkills(p *manifest.Pack) int {
 			}
 			c.add(Error, CodeUnparseable, p.Name, id, "%v", err)
 			continue
+		}
+		if p.Name == manifest.OwnPack {
+			c.checkPackLinks(p.Name, id, pack.CheckSkillLinks(c.lib.Root, skillDir))
 		}
 		if norm := library.NormalizeName(name); norm != name || !manifest.NameRE.MatchString(name) {
 			c.add(Error, CodeSkillName, p.Name, id, "directory name is not normalized (expected %q); `find` cannot see this skill", norm)
