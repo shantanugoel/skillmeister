@@ -103,15 +103,42 @@ func TestInitRefusals(t *testing.T) {
 		}
 	})
 	t.Run("a foreign skill directory blocks everything", func(t *testing.T) {
+		for name, body := range map[string]string{
+			"other name":   "---\nname: other\n---\nmine\n",
+			"name only":    "---\nname: skillmeister\ndescription: My own skill.\n---\nDo my thing.\n",
+			"command only": "---\nname: notes\ndescription: Mentions skillmeister.\n---\n\"/bin/sm\" --library \"/lib\" find --json --limit 8 -- \"x\"\n",
+		} {
+			t.Run(name, func(t *testing.T) {
+				home := realPath(t, t.TempDir())
+				lib := filepath.Join(home, "lib")
+				dir := filepath.Join(home, ".claude", "skills", "skillmeister")
+				write(t, dir, "SKILL.md", body)
+				r := runHome(t, home, "--library", lib, "init", "--bin", "/x/skillmeister")
+				if r.code != ExitUsage || !strings.Contains(r.err, "not a skillmeister shim") {
+					t.Errorf("exit %d: %s", r.code, r.err)
+				}
+				if got := read(t, dir, "SKILL.md"); got != body {
+					t.Errorf("foreign SKILL.md was modified:\n%q", got)
+				}
+				if fileExists(lib) || fileExists(filepath.Join(home, ".agents")) {
+					t.Error("something was written before the refusal")
+				}
+			})
+		}
+	})
+	t.Run("previous release shim is updated", func(t *testing.T) {
 		home := realPath(t, t.TempDir())
 		lib := filepath.Join(home, "lib")
-		write(t, filepath.Join(home, ".claude", "skills", "skillmeister"), "SKILL.md", "---\nname: other\n---\nmine\n")
-		r := runHome(t, home, "--library", lib, "init", "--bin", "/x/skillmeister")
-		if r.code != ExitUsage || !strings.Contains(r.err, "not a skillmeister shim") {
-			t.Errorf("exit %d: %s", r.code, r.err)
+		oldShim := "---\nname: skillmeister\ndescription: Old shim.\n---\n\"/old/sm\" --library \"/old/lib\" find --json --limit 8 -- \"<keywords>\"\n"
+		for _, p := range harness.ShimPaths(home) {
+			write(t, filepath.Dir(p), "SKILL.md", oldShim)
 		}
-		if fileExists(lib) || fileExists(filepath.Join(home, ".agents")) {
-			t.Error("something was written before the refusal")
+		mustOK(t, runHome(t, home, "--library", lib, "init", "--bin", "/new/skillmeister"))
+		want, _ := harness.Render(harness.Template, "/new/skillmeister", lib)
+		for _, p := range harness.ShimPaths(home) {
+			if got := readAbs(t, p); got != string(want) {
+				t.Errorf("%s was not updated to new shim", p)
+			}
 		}
 	})
 	t.Run("symlink", func(t *testing.T) {

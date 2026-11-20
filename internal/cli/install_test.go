@@ -147,18 +147,30 @@ func TestInstallRefusesToClobber(t *testing.T) {
 		t.Skip("builds the binary")
 	}
 	clone := cloneTree(t)
-	home := t.TempDir()
-	dir := filepath.Join(home, ".claude", "skills", "skillmeister")
-	write(t, dir, "SKILL.md", "---\nname: something-else\n---\nmine\n")
-	out, err := runInstall(t, clone, home, filepath.Join(home, "bin"))
-	if err == nil || !strings.Contains(out, "not a skillmeister shim") {
-		t.Fatalf("install over a real directory: %v\n%s", err, out)
-	}
-	if read(t, dir, "SKILL.md") != "---\nname: something-else\n---\nmine\n" {
-		t.Error("the directory was changed")
-	}
-	if fileExists(filepath.Join(home, ".agents", "skills", "skillmeister")) {
-		t.Error("the other path was written before the refusal")
+	for name, body := range map[string]string{
+		"other name":   "---\nname: something-else\n---\nmine\n",
+		"name only":    "---\nname: skillmeister\ndescription: My hand-written skill.\n---\nDo my thing.\n",
+		"command only": "---\nname: docs\n---\n\"/usr/local/bin/skillmeister\" --library \"/tmp/lib\" find --json --limit 8 -- \"q\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			dir := filepath.Join(home, ".claude", "skills", "skillmeister")
+			binDir := filepath.Join(home, "bin")
+			write(t, dir, "SKILL.md", body)
+			out, err := runInstall(t, clone, home, binDir)
+			if err == nil || !strings.Contains(out, "not a skillmeister shim") {
+				t.Fatalf("install over a real directory: %v\n%s", err, out)
+			}
+			if read(t, dir, "SKILL.md") != body {
+				t.Error("the directory was changed")
+			}
+			if fileExists(filepath.Join(home, ".agents", "skills", "skillmeister")) {
+				t.Error("the other path was written before the refusal")
+			}
+			if fileExists(filepath.Join(binDir, "skillmeister")) {
+				t.Error("the binary was installed before the refusal")
+			}
+		})
 	}
 	// A symlink is refused as well.
 	home2 := t.TempDir()

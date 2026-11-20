@@ -31,10 +31,18 @@ func checkTarget(skillPath string) error {
 	if st.IsDir() && errors.Is(err, fs.ErrNotExist) && onlyTempFiles(dir) {
 		return nil // a failed earlier run left an empty directory
 	}
-	if !st.IsDir() || err != nil || !bytes.Contains(append([]byte("\n"), data...), shimName) {
+	if !st.IsDir() || err != nil || !isShim(data) {
 		return fmt.Errorf("%s exists and is not a skillmeister shim; move it away first", dir)
 	}
 	return nil
+}
+
+// isShim reports whether data looks like a skillmeister-rendered shim. Both the
+// skillmeister frontmatter name and the rendered find command line must be
+// present, so neither a hand-written skill named "skillmeister" nor another
+// skill quoting the command line is mistaken for a shim.
+func isShim(data []byte) bool {
+	return bytes.Contains(append([]byte("\n"), data...), shimName) && cmdRE.FindSubmatch(data) != nil
 }
 
 // onlyTempFiles reports whether dir holds nothing but the temp files of an

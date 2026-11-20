@@ -35,7 +35,9 @@ for dir in "$HOME/.agents/skills/skillmeister" "$HOME/.claude/skills/skillmeiste
     die "$dir is a symlink; remove it first"
   fi
   if [ -e "$dir" ]; then
-    [ -d "$dir" ] && grep -q '^name: skillmeister$' "$dir/SKILL.md" 2>/dev/null ||
+    [ -d "$dir" ] &&
+      grep -q '^name: skillmeister$' "$dir/SKILL.md" 2>/dev/null &&
+      grep -qE '^"[^"]+" --library "[^"]+" find --json' "$dir/SKILL.md" 2>/dev/null ||
       die "$dir exists and is not a skillmeister shim; move it away first"
   fi
 done
