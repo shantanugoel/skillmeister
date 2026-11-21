@@ -69,6 +69,7 @@ func cmdFind(g *globals, args []string) error {
 	asJSON := fs.Bool("json", false, "print one JSON object per line")
 	limit := fs.Int("limit", 0, "maximum number of results")
 	all := fs.Bool("all", false, "include disabled packs and skills")
+	partial := fs.Bool("partial", false, "if no skill matches every keyword, return skills that match some")
 	var packs multiFlag
 	fs.Var(&packs, "pack", "restrict to a pack (repeatable)")
 	if err := parse(fs, args); err != nil {
@@ -96,6 +97,11 @@ func cmdFind(g *globals, args []string) error {
 	}
 	g.warn(warns)
 	hits := search.Find(recs, query, n)
+	if len(hits) == 0 && *partial {
+		if hits = search.FindPartial(recs, query, n); len(hits) > 0 {
+			fmt.Fprintln(g.env.Stderr, "find: no skill matches every keyword in one field; showing partial matches")
+		}
+	}
 	if *asJSON {
 		out := make([]recordJSON, len(hits))
 		for i, h := range hits {
@@ -145,6 +151,8 @@ func cmdList(g *globals, args []string) error {
 	asJSON := fs.Bool("json", false, "print one JSON object per line")
 	all := fs.Bool("all", false, "include disabled packs and skills")
 	trust := fs.String("trust", "", "only skills of this declared trust")
+	brief := fs.Bool("brief", false, "one short line per skill")
+	byPack := fs.Bool("packs", false, "one line per pack with its skill count")
 	var packs multiFlag
 	fs.Var(&packs, "pack", "restrict to a pack (repeatable)")
 	if err := parse(fs, args); err != nil {
@@ -152,6 +160,9 @@ func cmdList(g *globals, args []string) error {
 	}
 	if fs.NArg() > 0 {
 		return usageErr("list: unexpected argument %q", fs.Arg(0))
+	}
+	if *brief && *byPack {
+		return usageErr("list: use at most one of --brief, --packs")
 	}
 	switch manifest.Trust(*trust) {
 	case "", manifest.Trusted, manifest.Pinned, manifest.Untrusted:
@@ -181,6 +192,12 @@ func cmdList(g *globals, args []string) error {
 		recs = kept
 	}
 	library.SortRecords(recs)
+	switch {
+	case *byPack:
+		return g.listPacks(recs, *asJSON)
+	case *brief:
+		return g.listBrief(recs, *asJSON)
+	}
 	if *asJSON {
 		out := make([]recordJSON, len(recs))
 		for i, r := range recs {
@@ -192,6 +209,125 @@ func cmdList(g *globals, args []string) error {
 		g.printHit(r, 0)
 	}
 	return nil
+}
+
+// briefJSON is the record shape of `list --brief --json`.
+type briefJSON struct {
+	ID          string `json:"id"`
+	Trust       string `json:"trust"`
+	Description string `json:"description"`
+}
+
+// packJSON is the record shape of `list --packs --json`.
+type packJSON struct {
+	Pack   string `json:"pack"`
+	Trust  string `json:"trust"`
+	Skills int    `json:"skills"`
+}
+
+func (g *globals) listBrief(recs []*library.Record, asJSON bool) error {
+	w := g.env.Stdout
+	if asJSON {
+		enc := json.NewEncoder(w)
+		enc.SetEscapeHTML(false)
+		for _, r := range recs {
+			if err := enc.Encode(briefJSON{r.ID, string(r.Trust), shortDescription(r.Description)}); err != nil {
+				return ioErr(err)
+			}
+		}
+		return nil
+	}
+	for _, r := range recs {
+		fmt.Fprintf(w, "%s  [%s]  %s\n", g.bold(r.ID), r.Trust, escape(shortDescription(r.Description)))
+	}
+	return nil
+}
+
+// listPacks prints the packs in the order of recs, which is sorted by pack.
+func (g *globals) listPacks(recs []*library.Record, asJSON bool) error {
+	var out []packJSON
+	for _, r := range recs {
+		if n := len(out); n > 0 && out[n-1].Pack == r.Pack {
+			out[n-1].Skills++
+			continue
+		}
+		out = append(out, packJSON{r.Pack, string(r.Trust), 1})
+	}
+	w := g.env.Stdout
+	if asJSON {
+		enc := json.NewEncoder(w)
+		enc.SetEscapeHTML(false)
+		for _, p := range out {
+			if err := enc.Encode(p); err != nil {
+				return ioErr(err)
+			}
+		}
+		return nil
+	}
+	for _, p := range out {
+		unit := "skills"
+		if p.Skills == 1 {
+			unit = "skill"
+		}
+		fmt.Fprintf(w, "%s  [%s]  %d %s\n", g.bold(p.Pack), p.Trust, p.Skills, unit)
+	}
+	return nil
+}
+
+// briefRunes bounds the description in `list --brief`, including "...".
+const briefRunes = 80
+
+// abbreviations do not end a sentence in shortDescription.
+var abbreviations = map[string]bool{
+	"e.g.": true, "i.e.": true, "vs.": true, "etc.": true, "approx.": true,
+	"incl.": true, "esp.": true, "cf.": true, "no.": true, "ca.": true,
+}
+
+// shortDescription returns the first sentence of d. If that sentence is
+// longer than briefRunes runes, it cuts it at a word boundary and appends
+// "...", so the result has at most briefRunes runes.
+func shortDescription(d string) string {
+	r := []rune(strings.Join(strings.Fields(d), " "))
+	r = r[:firstSentenceEnd(r)]
+	if len(r) <= briefRunes {
+		return string(r)
+	}
+	limit := briefRunes - len("...")
+	cut := r[:limit]
+	// Cut at the last space if it keeps at least half of the text. A space
+	// right after the limit means the cut is already at a word boundary.
+	if r[limit] != ' ' {
+		for i := limit - 1; i > limit/2; i-- {
+			if cut[i] == ' ' {
+				cut = cut[:i]
+				break
+			}
+		}
+	}
+	return strings.TrimRight(string(cut), " ,;:-") + "..."
+}
+
+// firstSentenceEnd returns the length of the first sentence in r. A sentence
+// ends at '.', '?', or '!' followed by a space and an uppercase letter or a
+// digit, unless the word is a known abbreviation.
+func firstSentenceEnd(r []rune) int {
+	for i := 0; i+2 < len(r); i++ {
+		if (r[i] != '.' && r[i] != '?' && r[i] != '!') || r[i+1] != ' ' {
+			continue
+		}
+		if next := r[i+2]; !unicode.IsUpper(next) && !unicode.IsDigit(next) {
+			continue
+		}
+		start := i
+		for start > 0 && r[start-1] != ' ' {
+			start--
+		}
+		if r[i] == '.' && abbreviations[strings.ToLower(string(r[start:i+1]))] {
+			continue
+		}
+		return i + 1
+	}
+	return len(r)
 }
 
 func cmdPath(g *globals, args []string) error {

@@ -205,6 +205,18 @@ characters. The agent still sends keywords, not the full sentence of the user.
 Body matching reads only the first 8 KB of a skill body. The CLI skips body
 matching when the higher tiers already fill `--limit` results.
 
+`find --partial` is an opt-in fallback. It does nothing when one or more
+records match every query token in one field. When no record matches, it
+returns the records that match at least one token. It ignores repeated tokens
+and tokens shorter than three characters, so words such as `to` add no noise.
+A record that matches every token, in a mix of fields, scores 19. For other
+records, each matched token adds 3 for a name match, 2 for a description
+match, or 1 for a body match, and the score is never more than 18. Thus a
+partial score is always below the body tier. The CLI
+writes one note to stderr when it returns partial matches. The fallback is
+not the default, because a strict miss is a useful signal: it tells the
+agent to change the keywords.
+
 ### Add a pack
 
 ```text
@@ -294,10 +306,10 @@ Flags come **before** positionals. Go's `flag` package stops parsing at the firs
 non-flag argument, so the documented order is the only one that works.
 
 ```text
-skillmeister find   [--json] [--limit N] [--pack P] [--all] <query>
+skillmeister find   [--json] [--limit N] [--pack P] [--all] [--partial] <query>
 skillmeister show   [--summary] [--raw] [--meta] <id|name>
 skillmeister path   <id>
-skillmeister list   [--json] [--pack P] [--all] [--trust T]
+skillmeister list   [--json] [--pack P] [--all] [--trust T] [--brief|--packs]
 
 skillmeister add    [--as P] [--fetch local|npx|git] [--ref R] [--path D] [--trust T] [--force] <source>
 skillmeister enable  <id|pack>
@@ -338,7 +350,14 @@ Exit codes: `0` success (including zero hits), `1` usage or resolution error,
 `2` drift or integrity failure, `3` I/O, lock contention, or subprocess failure.
 
 `find --json` and `list --json` share one record shape and are the stable
-contract the shim parses. `list` omits `score`. `doctor --json` is best-effort and
+contract the shim parses. `list` omits `score`. `list --brief --json` prints
+`id`, `trust`, and a short `description`: the first sentence, cut at a word
+to at most 80 characters, `...` included. A sentence ends at `.`, `?`, or `!`
+before a space and an uppercase letter or a digit; a short list of
+abbreviations, such as `e.g.`, does not end it. `list --packs --json` prints
+`pack`, `trust`, and `skills` (the number of skills in scope). A pack with no
+skill in scope is not printed. These two shapes are also stable, because the shim
+parses them. `doctor --json` is best-effort and
 not versioned. `show` and `path` have no JSON mode: `path` prints a bare path,
 `show` is built for humans. A breaking change to the record shape requires a
 version bump, and `doctor` reports the binary version alongside it.
@@ -354,6 +373,8 @@ version bump, and `doctor` reports the binary version alongside it.
 | `--pack` | repeatable via a `flag.Value`; intersects with the active profile |
 | `--limit` | `--limit` > `defaults.search_limit` > 8 |
 | `list --trust` | exact match on declared trust; `modified` is rejected with a pointer to `doctor` |
+| `list --brief`, `--packs` | use one or neither; both apply after `--pack`, `--all`, and `--trust` |
+| `find --partial` | used only when no record matches every query token in one field; partial scores are 1 to 19 |
 | `add --trust` | `trusted`, `pinned`, or `untrusted`; `pinned` is rejected for a local pack |
 | Global flags | before the subcommand; each subcommand has its own `flag.FlagSet` with `ContinueOnError` |
 | Confirmation | `update --apply`, and `trust --level trusted` on a fetched pack; prompts only when stdin is a TTY; `--yes` required otherwise; declining exits `1` |
@@ -385,10 +406,23 @@ skillmeister find --json --limit 8 "<query>"
   characters.
 - Read `id`, `name`, `description`, `path`, `trust`, `score`, `warnings`; ignore
   the rest.
-- Zero records: try one time more with fewer or different keywords. If there
-  are still no records, report that nothing matched and mention that `--all`
-  includes disabled skills. Do not widen the search automatically — `disable` is a user
-  decision.
+- No record fits: do these steps in order, and stop when a record fits.
+  1. Run the same line again with `--partial`. A score below 20 is a partial
+     match; 19 means all keywords match, but not in one field. The agent loads
+     a partial match only when its description fits the request, not because
+     it is the top record.
+  2. Run it with `--partial` one time more, with different keywords.
+  3. Browse.
+  4. Report that nothing matched and mention that `--all` includes disabled
+     skills. Do not widen the search automatically — `disable` is a user
+     decision.
+- Browse: when the user asks which skills exist, or at step 3 above, run
+  `list --packs --json`. If the total is 50 skills or fewer, run
+  `list --brief --json`. If not, add `--pack <pack>` for each pack that can
+  apply. A brief record is not enough to load a skill. To load a listed skill,
+  run the find line with its `id` as the query; the exact match has score 100
+  and the full record, with `path` and `warnings`. No score-100 record means
+  do not load. Do not use `path` or `show` to load a listed skill.
 - Non-zero exit: show the stderr line and stop.
 - Top two results at the same score: use the descriptions to choose. If the
   descriptions do not make the choice clear, ask the user. Scores have only

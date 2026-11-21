@@ -7,6 +7,10 @@
 // two characters. Both tokens need at least four characters. The prefix rules
 // let "hyperframe" find "hyperframes", "hyperframes" find "hyperframe", and
 // "access" find "accessibility".
+//
+// FindPartial is an opt-in fallback for a query that no record matches in
+// full: it ranks records that match at least one query token, with scores
+// below the body tier.
 package search
 
 import (
@@ -152,4 +156,85 @@ func containsAll(have, want []string) bool {
 		}
 	}
 	return true
+}
+
+// Partial scores. A partial hit only appears when no record matches every
+// query token in one field, so partial scores stay below the body tier.
+const (
+	partialName        = 3
+	partialDescription = 2
+	partialBody        = 1
+	// partialAll is the score of a record that matches every token, but
+	// not in one field.
+	partialAll = ScoreBody - 1
+	// partialMax caps the score of a record that misses a token.
+	partialMax = partialAll - 1
+	// partialMinToken is the shortest token that partial search uses, so
+	// words such as "to" and "a" add no noise.
+	partialMinToken = 3
+)
+
+// FindPartial ranks the records that match at least one query token. It
+// ignores repeated tokens and tokens shorter than three characters. A record
+// that matches every token, in any mix of fields, scores 19. For other
+// records, each matched token adds 3 for a name match, 2 for a description
+// match, or 1 for a body match; the best field counts and the score is at
+// most 18. Callers use it as a fallback when Find returns no hits.
+func FindPartial(recs []*library.Record, query string, limit int) []Hit {
+	var qtok []string
+	seen := map[string]bool{}
+	for _, q := range Tokenize(strings.TrimSpace(query)) {
+		if len(q) >= partialMinToken && !seen[q] {
+			seen[q] = true
+			qtok = append(qtok, q)
+		}
+	}
+	if len(qtok) == 0 {
+		return nil
+	}
+	var hits []Hit
+	for _, r := range recs {
+		name, desc := Tokenize(r.Name), Tokenize(r.Description)
+		var body []string
+		score, matched := 0, 0
+		for _, q := range qtok {
+			w := 0
+			switch {
+			case containsAll(name, []string{q}):
+				w = partialName
+			case containsAll(desc, []string{q}):
+				w = partialDescription
+			default:
+				if body == nil {
+					body = Tokenize(r.Body)
+				}
+				if containsAll(body, []string{q}) {
+					w = partialBody
+				}
+			}
+			if w > 0 {
+				score += w
+				matched++
+			}
+		}
+		switch {
+		case matched == 0:
+			continue
+		case matched == len(qtok):
+			score = partialAll
+		default:
+			score = min(score, partialMax)
+		}
+		hits = append(hits, Hit{r, score})
+	}
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].Score != hits[j].Score {
+			return hits[i].Score > hits[j].Score
+		}
+		return library.Less(hits[i].Record, hits[j].Record)
+	})
+	if limit > 0 && len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return hits
 }

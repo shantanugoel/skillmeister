@@ -17,7 +17,7 @@ func TestRender(t *testing.T) {
 	if err != nil || strings.Contains(string(out), "{{") {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{`"/bin/sm" --library "/lib" find`, `"/bin/sm" --library "/lib" path <pack>/<name>`, "${CLAUDE_SKILL_DIR}", "<SKILLS>"} {
+	for _, want := range []string{`"/bin/sm" --library "/lib" find`, `"/bin/sm" --library "/lib" path <pack>/<name>`, `"/bin/sm" --library "/lib" list --packs --json`, `"/bin/sm" --library "/lib" list --brief --json`, "--partial", "${CLAUDE_SKILL_DIR}", "<SKILLS>"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("the shim lacks %s", want)
 		}

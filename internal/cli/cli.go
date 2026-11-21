@@ -151,10 +151,10 @@ type command struct {
 
 func commands() []command {
 	return []command{
-		{"find", "find [--json] [--limit N] [--pack P] [--all] <query>", cmdFind},
+		{"find", "find [--json] [--limit N] [--pack P] [--all] [--partial] <query>", cmdFind},
 		{"show", "show [--summary] [--raw] [--meta] <id|name>", cmdShow},
 		{"path", "path <id>", cmdPath},
-		{"list", "list [--json] [--pack P] [--all] [--trust T]", cmdList},
+		{"list", "list [--json] [--pack P] [--all] [--trust T] [--brief|--packs]", cmdList},
 		{"add", "add [--as P] [--fetch local|npx|git] [--ref R] [--path D] [--trust T] [--force] <source>", cmdAdd},
 		{"enable", "enable <pack|pack/skill>", cmdEnable},
 		{"disable", "disable <pack|pack/skill>", cmdDisable},

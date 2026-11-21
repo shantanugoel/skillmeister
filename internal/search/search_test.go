@@ -223,3 +223,35 @@ func TestTokenize(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestFindPartial(t *testing.T) {
+	recs := []*library.Record{
+		rec("own", "video-cut", "Trim clips.", "", manifest.Trusted),
+		rec("own", "slides", "Make a video deck.", "", manifest.Trusted),
+		rec("own", "notes", "Take notes.", "Talks about slides and video.", manifest.Trusted),
+		rec("own", "none", "Nothing.", "No match.", manifest.Trusted),
+		rec("own", "aaaa-bbbb-cccc-dddd-eeee-ffff-gggg", "d", "", manifest.Trusted),
+	}
+	for q, want := range map[string]string{
+		// video-cut: name 3. slides: description 2. notes: body 1.
+		"video zzzz": "own/video-cut=3 own/slides=2 own/notes=1",
+		// Repeated and short tokens add nothing.
+		"video video to a zzzz": "own/video-cut=3 own/slides=2 own/notes=1",
+		// Every token matches, but not in one field: the top partial score.
+		"slides video": "own/notes=19 own/slides=19 own/video-cut=3",
+		// A record that misses a token is capped at 18.
+		"aaaa bbbb cccc dddd eeee ffff gggg zzzz": "own/aaaa-bbbb-cccc-dddd-eeee-ffff-gggg=18",
+		"to a": "",
+		"  ":   "",
+	} {
+		if got := ids(FindPartial(recs, q, 0)); got != want {
+			t.Errorf("query %q:\n got  %s\n want %s", q, got, want)
+		}
+	}
+	if got, want := ids(FindPartial(recs, "slides video", 1)), "own/notes=19"; got != want {
+		t.Errorf("limit: got %s, want %s", got, want)
+	}
+	if got := ids(Find(recs, "video zzzz", 0)); got != "" {
+		t.Fatalf("strict find must miss: %s", got)
+	}
+}

@@ -146,10 +146,10 @@ such a file with no prompt. To prevent this, add a deny rule:
 Flags go before positional arguments. Use `--` to end the flags.
 
 ```text
-skillmeister find   [--json] [--limit N] [--pack P] [--all] <query>
+skillmeister find   [--json] [--limit N] [--pack P] [--all] [--partial] <query>
 skillmeister show   [--summary] [--raw] [--meta] <id|name>
 skillmeister path   <id>
-skillmeister list   [--json] [--pack P] [--all] [--trust T]
+skillmeister list   [--json] [--pack P] [--all] [--trust T] [--brief|--packs]
 
 skillmeister add    [--as P] [--fetch local|npx|git] [--ref R] [--path D] [--trust T] [--force] <source>
 skillmeister enable  <pack|pack/skill>
@@ -168,6 +168,21 @@ the default is `~/.skillmeister`),
 
 Exit codes: `0` success, `1` usage error, `2` drift or integrity failure, `3`
 I/O error, lock contention, or subprocess failure.
+
+`find` searches the name, the description, and the first 8 KB of the body of
+each skill. Every keyword must match in one of these fields. With `--partial`,
+when no skill matches every keyword in one field, `find` returns the skills
+that match some of the keywords. A partial match has a score below 20. A
+score of 19 means that the skill matches all keywords, but not in one field.
+Partial search ignores repeated keywords and keywords shorter than three
+characters.
+
+`list --packs` prints one line for each pack, with its number of skills in
+scope. A pack with no skill in scope (for example, after `--trust`) is not
+shown. `list --brief` prints one line for each skill, with the first sentence
+of its description. A longer sentence is cut at a word, and `...` is added,
+so the line has at most 80 characters after the trust. Use these options to
+browse a large library.
 
 `update --check` reads from the network (`git ls-remote`) and writes nothing.
 `update --apply` shows a diff summary, asks for confirmation (or needs `--yes`

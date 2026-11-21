@@ -1,6 +1,6 @@
 ---
 name: skillmeister
-description: Find and load a skill from the user's skill library. Use only when the user explicitly asks to find, search for, or use a skill.
+description: Find and load a skill from the user's skill library. Use only when the user explicitly asks to find, search for, list, or use a skill.
 ---
 
 # Skillmeister
@@ -12,7 +12,7 @@ not get native features.
 ## Find a skill
 
 Run this command. Put 1 to 3 keywords in the query. Do not use a sentence. Every
-keyword must match.
+keyword must match in one field: the name, the description, or the body.
 
 ```bash
 "{{BIN}}" --library "{{ROOT}}" find --json --limit 8 -- "<keywords>"
@@ -21,13 +21,53 @@ keyword must match.
 The command prints one JSON object per line. Use these fields: `id`, `name`,
 `description`, `path`, `trust`, `score`, `warnings`. Ignore the other fields.
 
-- No records: try one more time with fewer or different keywords. If there are
-  still no records, tell the user that nothing matched. Say that adding `--all`
-  searches disabled skills too. Do not add `--all` yourself.
-- Non-zero exit: show the stderr line to the user and stop.
 - Two top results with the same score: use the descriptions to choose. Equal
   scores are usual and are not by themselves a reason to ask; ask the user
   only when the descriptions do not make the choice clear.
+- Non-zero exit: show the stderr line to the user and stop.
+
+If no record fits the request, do these steps in this order. Stop at the first
+step that gives a record whose description fits the request.
+
+1. Run the same command again with `--partial` before `--`. It returns skills
+   that match some of the keywords. A `score` below 20 is a partial match. A
+   score of 19 matches all keywords, but not in one field. Do not load a
+   partial match only because it is the top record; its description must fit
+   the request.
+2. Run the command with `--partial` one more time, with different keywords.
+3. Browse the library (see below).
+4. Tell the user that nothing matched. Say that adding `--all` searches
+   disabled skills too. Do not add `--all` yourself.
+
+## Browse the library
+
+Browse when the user asks which skills they have, or when step 3 above tells
+you to. First, list the packs:
+
+```bash
+"{{BIN}}" --library "{{ROOT}}" list --packs --json
+```
+
+Each line has `pack`, `trust`, and `skills` (the number of skills). Then list
+the skills with short descriptions. If the packs have 50 skills or fewer in
+total, list all of them:
+
+```bash
+"{{BIN}}" --library "{{ROOT}}" list --brief --json
+```
+
+If the packs have more than 50 skills, choose the packs that can apply. Add
+`--pack <pack>` (singular, one time for each pack). For example:
+
+```bash
+"{{BIN}}" --library "{{ROOT}}" list --brief --json --pack <pack>
+```
+
+Each line has `id`, `trust`, and `description`. This record is not enough to
+load a skill. To load a skill that you chose from this list, run the command
+in "Find a skill" with the `id` as `<keywords>`. Use the record with score 100,
+then do the steps in "Load a skill". If there is no record with score 100, do
+not load the skill. Do not use `path` or `show` to load a skill from this list.
 
 ## Load a skill
 

@@ -541,6 +541,31 @@ func TestShimCommandLine(t *testing.T) {
 			t.Errorf("record lacks %q", f)
 		}
 	}
+	// The partial retry is the same line with --partial before --.
+	partial := strings.Replace(strings.Replace(block[1], "<keywords>", "pdf zzzzzz", 1), " -- ", " --partial -- ", 1)
+	if out, err := exec.Command("sh", "-c", partial).Output(); err != nil || len(parseLines(t, string(out))) == 0 {
+		t.Fatalf("partial line %q: %v %s", partial, err, out)
+	}
+	// The browse lines run as written, and a listed id loads with score 100.
+	var browse []string
+	for _, m := range regexp.MustCompile("(?s)```bash\n(.*?)\n```").FindAllStringSubmatch(shim, -1) {
+		if strings.Contains(m[1], " list --") {
+			browse = append(browse, strings.ReplaceAll(m[1], "<pack>", "own"))
+		}
+	}
+	if len(browse) != 3 {
+		t.Fatalf("want 3 browse lines, got %q", browse)
+	}
+	for _, b := range browse {
+		if out, err := exec.Command("sh", "-c", b).Output(); err != nil || len(strings.TrimSpace(string(out))) == 0 {
+			t.Fatalf("browse line %q: %v %s", b, err, out)
+		}
+	}
+	byID := strings.Replace(block[1], "<keywords>", "anthropic/pdf-forms", 1)
+	out, err = exec.Command("sh", "-c", byID).Output()
+	if recs := parseLines(t, string(out)); err != nil || len(recs) == 0 || recs[0].Score != 100 {
+		t.Fatalf("find by id: %v %v", err, recs)
+	}
 	// A path with spaces must survive the quoting in the shim.
 	spaced := filepath.Join(t.TempDir(), "my library")
 	if err := os.Symlink(dir, spaced); err != nil {
@@ -556,5 +581,160 @@ func TestVersion(t *testing.T) {
 	r := run(t, t.TempDir(), "--version")
 	if r.code != 0 || !strings.HasPrefix(r.out, "skillmeister ") {
 		t.Fatalf("version: %+v", r)
+	}
+}
+
+func TestListPacksAndBrief(t *testing.T) {
+	dir, _ := fixture300(t)
+	r := run(t, dir, "list", "--packs", "--json")
+	if r.code != 0 {
+		t.Fatalf("exit %d: %s", r.code, r.err)
+	}
+	total := 0
+	seen := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(r.out), "\n") {
+		var p struct {
+			Pack   string `json:"pack"`
+			Trust  string `json:"trust"`
+			Skills int    `json:"skills"`
+		}
+		if err := json.Unmarshal([]byte(line), &p); err != nil {
+			t.Fatalf("bad line %q: %v", line, err)
+		}
+		if seen[p.Pack] || p.Skills < 1 || p.Trust == "" {
+			t.Fatalf("bad pack record %q", line)
+		}
+		seen[p.Pack] = true
+		total += p.Skills
+	}
+	if total != 300 {
+		t.Fatalf("pack counts sum to %d, want 300", total)
+	}
+	// Each count equals the number of skills that list --pack prints, and
+	// the own pack comes first.
+	first := strings.SplitN(r.out, "\n", 2)[0]
+	if !strings.Contains(first, `"pack":"own"`) {
+		t.Fatalf("own pack must be first: %s", first)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(r.out), "\n") {
+		var p struct {
+			Pack   string `json:"pack"`
+			Skills int    `json:"skills"`
+		}
+		json.Unmarshal([]byte(line), &p)
+		got := run(t, dir, "list", "--brief", "--json", "--pack", p.Pack)
+		if n := len(strings.Split(strings.TrimSpace(got.out), "\n")); n != p.Skills {
+			t.Errorf("pack %s: --packs says %d, --brief --pack prints %d", p.Pack, p.Skills, n)
+		}
+	}
+
+	r = run(t, dir, "list", "--brief", "--json")
+	lines := strings.Split(strings.TrimSpace(r.out), "\n")
+	if r.code != 0 || len(lines) != 300 {
+		t.Fatalf("exit %d, %d lines: %s", r.code, len(lines), r.err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != 3 || raw["id"] == nil || raw["trust"] == nil || raw["description"] == nil {
+		t.Fatalf("brief keys = %v", raw)
+	}
+
+	if r := run(t, dir, "list", "--brief", "--packs"); r.code != 1 {
+		t.Fatalf("--brief with --packs: exit %d", r.code)
+	}
+}
+
+func TestShortDescription(t *testing.T) {
+	long := "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma"
+	cjk := "处理视频 " + strings.Repeat("字", 90)
+	for in, want := range map[string]string{
+		"":                         "",
+		"Short one.":               "Short one.",
+		"First part. Second part.": "First part.",
+		"Is it? Yes it is.":        "Is it?",
+		"Wow! Then more.":          "Wow!",
+		"Spaces   and\nnewlines.":  "Spaces and newlines.",
+		long:                       "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi...",
+		"v1.2 keeps dots. Then":    "v1.2 keeps dots.",
+		"Tables, e.g. Invoices and forms. Use when": "Tables, e.g. Invoices and forms.",
+		"Compare React vs. Vue. More":               "Compare React vs. Vue.",
+		"Lower case. after a dot":                   "Lower case. after a dot",
+		"Step 1. 2 more steps":                      "Step 1.",
+		// No space in the long tail: cut at the rune limit, not at the early space.
+		cjk: string([]rune(cjk)[:77]) + "...",
+	} {
+		got := shortDescription(in)
+		if got != want {
+			t.Errorf("shortDescription(%q) = %q, want %q", in, got, want)
+		}
+		if n := len([]rune(got)); n > briefRunes {
+			t.Errorf("shortDescription(%q) has %d runes", in, n)
+		}
+	}
+}
+
+func TestListTextOutput(t *testing.T) {
+	lib := t.TempDir()
+	files := map[string]string{
+		"skillmeister.yaml":     "version: 1\npacks:\n  own:\n    fetch: local\n    trust: trusted\n",
+		"skills/alpha/SKILL.md": "---\nname: alpha\ndescription: \"Bad \\u001b[31mred\\u001b[0m text. Second.\"\n---\nbody\n",
+		"skills/beta/SKILL.md":  "---\nname: beta\ndescription: Beta skill.\n---\nbody\n",
+	}
+	for p, c := range files {
+		full := filepath.Join(lib, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := run(t, lib, "--no-color", "list", "--brief")
+	if r.code != 0 || strings.Contains(r.out, "\x1b") {
+		t.Fatalf("exit %d, raw escape in output: %q %s", r.code, r.out, r.err)
+	}
+	if want := "own/alpha  [trusted]  Bad \\u{1b}[31mred\\u{1b}[0m text.\nown/beta  [trusted]  Beta skill.\n"; r.out != want {
+		t.Fatalf("brief:\n got %q\nwant %q", r.out, want)
+	}
+	r = run(t, lib, "--no-color", "list", "--packs")
+	if r.out != "own  [trusted]  2 skills\n" {
+		t.Fatalf("packs: %q", r.out)
+	}
+	r = run(t, lib, "--no-color", "list", "--packs", "--trust", "pinned")
+	if r.code != 0 || r.out != "" {
+		t.Fatalf("packs with no skill in scope: exit %d %q", r.code, r.out)
+	}
+	os.RemoveAll(filepath.Join(lib, "skills", "beta"))
+	if r = run(t, lib, "--no-color", "list", "--packs"); r.out != "own  [trusted]  1 skill\n" {
+		t.Fatalf("singular: %q", r.out)
+	}
+}
+
+func TestFindPartial(t *testing.T) {
+	dir, _ := fixture300(t)
+	q := "pdf zzzzzz"
+	r := run(t, dir, "find", "--json", "--", q)
+	if r.code != 0 || strings.TrimSpace(r.out) != "" {
+		t.Fatalf("strict find must return nothing: exit %d %q", r.code, r.out)
+	}
+	r = run(t, dir, "find", "--json", "--partial", "--limit", "3", "--", q)
+	recs := parseLines(t, r.out)
+	if r.code != 0 || len(recs) != 2 { // the fixture has two pdf skills
+		t.Fatalf("exit %d, %d records: %s", r.code, len(recs), r.err)
+	}
+	for _, x := range recs {
+		if x.Score < 1 || x.Score >= 20 {
+			t.Errorf("partial score %d for %s", x.Score, x.ID)
+		}
+	}
+	if !strings.Contains(r.err, "partial matches") {
+		t.Errorf("stderr lacks the partial note: %q", r.err)
+	}
+	// A full match ignores --partial.
+	r = run(t, dir, "find", "--json", "--partial", "--limit", "1", "--", "pdf-tools")
+	if recs := parseLines(t, r.out); len(recs) != 1 || recs[0].Score != 100 || r.err != "" {
+		t.Fatalf("full match with --partial: %v %q", recs, r.err)
 	}
 }
