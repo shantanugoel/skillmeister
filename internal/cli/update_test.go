@@ -174,7 +174,7 @@ func TestUpdateCommitPinnedAndErrors(t *testing.T) {
 
 func TestUpdateCheckNeedsAGitHubSource(t *testing.T) {
 	dir := newLib(t)
-	fakeSkills(t, dir, strings.Repeat("ef", 20), "pdf")
+	_, _ = fakeSkills(t, dir, strings.Repeat("ef", 20), "pdf")
 	mustOK(t, run(t, dir, "add", "--as", "np", "notion"))
 	r := run(t, dir, "update", "--check")
 	if r.code != ExitIO || !strings.Contains(r.out, "not a GitHub repository") {

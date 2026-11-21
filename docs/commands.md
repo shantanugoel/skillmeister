@@ -64,9 +64,7 @@ text and the new ignore lines, and `init` writes them.
 - A URL is a `git` pack: `https://`, `http://`, `ssh://`, `file://`, `git@`,
   or a `.git` suffix.
 - An `owner/repo` shorthand is an `npx` pack. The pinned `skills` CLI fetches
-  it. Run `npm ci` in the library before you add or update an `npx` pack. The
-  library needs the `package.json` and `package-lock.json` of this repo, so use
-  a library made from a clone. `init` does not write these files.
+  it. See [npx packs](#npx-packs).
 
 Use `--fetch` to override the inferred method. For example, `--fetch npx` sends
 a URL to the `skills` CLI.
@@ -100,6 +98,50 @@ New packs are `untrusted`. Use `--trust` to set a different trust level.
 inferred method is different, `add` stops. Use `--fetch` with the method of the
 pack to keep it, or remove the pack first to change the method.
 
+
+## npx packs
+
+An `npx` pack needs Node.js, at the version that the pinned `skills` CLI needs
+(22.20 or newer for `skills` 1.9.0). The first install of the CLI also needs
+npm. Commands that only read the
+library, such as `find`, `show`, `list`, `doctor`, and `sync --frozen`, do not
+need Node. Only `add`, `update --apply`, and a `sync` that restores an `npx`
+pack run the CLI.
+
+The binary holds the pin (`package.json` and `package-lock.json` of this repo).
+On first use, it installs the CLI with `npm ci --ignore-scripts` into
+`<cache>/skillmeister/skills-<version>-<hash>/`. `<cache>` is
+`~/Library/Caches` on macOS, and `$XDG_CACHE_HOME` or `~/.cache` on Linux. Set
+`SKILLMEISTER_CACHE_DIR` to use a different directory. A new pin uses a new
+directory. Skillmeister does not remove old directories; you can remove them.
+The library holds no Node files.
+
+For a GitHub source, skillmeister finds the commit of the ref with
+`git ls-remote` before the CLI runs. A GitHub source is an `owner/repo`
+shorthand (also with a subpath), a `github:` source, a `github.com` URL, or a
+`git@github.com:` URL. Then the CLI fetches that commit, so add, update, and
+restore get the same files. Do not use a name that is both a branch and a tag.
+An unknown ref fails. To pin a commit, give the full 40-character hash; a short
+hash fails.
+
+If `git ls-remote` cannot read the repo (for example, a private repo that only
+the `gh` CLI can read), the CLI gets the ref as it is. There is one exception:
+for a source with no ref from `vercel`, `vercel-labs`, `heygen-com`,
+`remotion-dev`, or `zapier/connectors`, the add stops. For these sources the
+CLI downloads a snapshot when it gets no commit, and a snapshot loses the
+executable bit. When `GH_HOST` names a host that is not `github.com`, a
+shorthand is a repo on that host, and skillmeister does not resolve it.
+
+A source can name its ref: `o/r#v1`, `o/r@1.2.0`, or
+`https://github.com/o/r/tree/v1/skills`. Do not also pass `--ref` for such a
+source.
+
+Skillmeister 0.5.0 and older did not resolve the commit. For an `npx` pack
+that such a version added from one of these owners with no ref, the CLI
+downloaded a snapshot. A restore of such a pack can fail, because the content
+does not match the lock. To fix the lock, run the `add --force` command that
+the error shows one time. `update --apply` does not fix it, because the commit
+did not change.
 
 ## find
 

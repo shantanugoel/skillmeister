@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -41,6 +42,8 @@ type Spec struct {
 	Ref    string
 	// Path is a subtree hint for git, or the source directory for local.
 	Path string
+	// Log gets progress lines, such as the install of the `skills` CLI.
+	Log io.Writer
 }
 
 // Staged is a fetched and normalized pack, not yet in place.

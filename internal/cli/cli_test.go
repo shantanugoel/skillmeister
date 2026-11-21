@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/shantanugoel/skillmeister/internal/pack"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,7 +47,14 @@ func fixture300(t testing.TB) (string, *gen.Fixture) {
 }
 
 func TestMain(m *testing.M) {
+	// No test may install the `skills` CLI into the real user cache.
+	cache, err := os.MkdirTemp("", "skillmeister-cache-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv(pack.CacheEnv, cache)
 	code := m.Run()
+	os.RemoveAll(cache)
 	if fixDir != "" {
 		os.RemoveAll(fixDir)
 	}

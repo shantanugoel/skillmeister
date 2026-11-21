@@ -169,6 +169,19 @@ func (d *Doc) SetField(pack, field, value string) error {
 	return d.set(packPath(pack), field, v)
 }
 
+// ClearField removes a string field (`ref` or `path`) of a pack.
+func (d *Doc) ClearField(pack, field string) error {
+	switch field {
+	case "ref", "path":
+	default:
+		return fmt.Errorf("field %q cannot be removed", field)
+	}
+	if err := d.requirePack(pack); err != nil {
+		return err
+	}
+	return d.removeKey(packPath(pack), field)
+}
+
 // SetDisable writes the disable list of a pack. An empty list removes the key.
 func (d *Doc) SetDisable(pack string, names []string) error {
 	if err := d.requirePack(pack); err != nil {

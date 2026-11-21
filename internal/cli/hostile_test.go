@@ -289,7 +289,7 @@ func TestForceReplaceRollsBackOnFailure(t *testing.T) {
 func TestRemoveKeepsSharedSkillsLockEntries(t *testing.T) {
 	dir := newLib(t)
 	commit := strings.Repeat("cd", 20)
-	fakeSkills(t, dir, commit, "pdf")
+	_, _ = fakeSkills(t, dir, commit, "pdf")
 	mustOK(t, run(t, dir, "add", "--as", "one", "o/r"))
 	mustOK(t, run(t, dir, "add", "--as", "two", "--ref", "v2", "o/r"))
 	mustOK(t, run(t, dir, "remove", "one"))

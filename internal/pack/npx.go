@@ -11,13 +11,11 @@ import (
 	"sort"
 
 	"github.com/shantanugoel/skillmeister/internal/lock"
+	"github.com/shantanugoel/skillmeister/internal/manifest"
 )
 
 // SkillsLockName is the lockfile of the `skills` CLI at the library root.
 const SkillsLockName = "skills-lock.json"
-
-// skillsBin is the pinned CLI, installed by `npm ci` from package.json.
-const skillsBin = "node_modules/.bin/skills"
 
 // skillsLock is the part of skills-lock.json that skillmeister reads. Entries
 // stay raw, so unknown fields survive a merge.
@@ -30,9 +28,15 @@ type skillsEntry struct {
 	Commit string `json:"commit"`
 }
 
-// fetchNPX runs the `skills` CLI in the staging directory. It installs every
-// skill of spec.Source as a copy for one agent, then reads the commit from the
-// lock entries that the CLI wrote.
+// fetchNPX runs the pinned `skills` CLI in the staging directory. It installs
+// every skill of spec.Source as a copy for one agent, then reads the commit from
+// the lock entries that the CLI wrote.
+//
+// For a GitHub source, skillmeister first resolves the ref to a full commit
+// with git ls-remote and gives the CLI that commit. Then add, update, and
+// restore all fetch by commit, and so get the same files: without a ref, the
+// CLI downloads a snapshot for some owners, and a snapshot loses the
+// executable bit.
 func fetchNPX(root *os.Root, work string, spec Spec) (*Staged, error) {
 	if err := checkArg("source", spec.Source); err != nil {
 		return nil, err
@@ -40,16 +44,41 @@ func fetchNPX(root *os.Root, work string, spec Spec) (*Staged, error) {
 	if err := checkArg("ref", spec.Ref); err != nil {
 		return nil, err
 	}
-	bin := filepath.Join(root.Name(), filepath.FromSlash(skillsBin))
-	if _, err := os.Stat(bin); err != nil {
-		return nil, errors.New("the pinned `skills` CLI is not installed; run `npm ci` in the library")
+	bin, err := SkillsCLI(spec.Log)
+	if err != nil {
+		return nil, err
+	}
+	src := parseNPXSource(spec.Source)
+	ref := normRef(spec.Ref)
+	if ref == "" {
+		ref = normRef(src.ref)
+	}
+	want := ""
+	if fullSHARE.MatchString(ref) {
+		want = ref
+	} else if src.repo != "" {
+		latest, err := LatestCommit(&manifest.Pack{Fetch: manifest.FetchGit, URL: src.repo, Ref: ref})
+		switch {
+		case err == nil:
+			want = latest.Commit
+		case errors.Is(err, ErrRefNotFound):
+			return nil, err
+		case src.snapshot() && ref == "":
+			// Without a ref, the CLI downloads a snapshot for these owners.
+			return nil, fmt.Errorf("cannot resolve the commit of %s: %w", spec.Source, err)
+		}
+		// On another failure, such as a private repo that only the gh CLI
+		// can read, the CLI gets the ref as it is.
 	}
 	pkg := spec.Source
-	if spec.Ref != "" {
-		pkg += "#" + spec.Ref
+	switch {
+	case want != "":
+		pkg = src.with(want)
+	case ref != "" && ref != src.ref:
+		pkg = src.with(ref)
 	}
 	abs := filepath.Join(root.Name(), filepath.FromSlash(work))
-	if _, err := run(abs, []string{"DO_NOT_TRACK=1"}, bin, "add", pkg, "--skill", "*", "-a", "claude-code", "-y", "--copy"); err != nil {
+	if _, err := runCmd(abs, []string{"DO_NOT_TRACK=1"}, true, bin, "add", pkg, "--skill", "*", "-a", "claude-code", "-y", "--copy"); err != nil {
 		return nil, err
 	}
 	srcDir := path.Join(work, ".claude", "skills")
@@ -95,6 +124,9 @@ func fetchNPX(root *os.Root, work string, spec Spec) (*Staged, error) {
 		}
 	default:
 		return nil, fmt.Errorf("%s from the `skills` CLI lists more than one commit", SkillsLockName)
+	}
+	if want != "" && s.Resolved != want {
+		return nil, fmt.Errorf("the `skills` CLI installed commit %s, not the requested commit %s", short(s.Resolved), short(want))
 	}
 	return s, nil
 }
@@ -183,3 +215,5 @@ func DropSkillsLock(root *os.Root, source string) error {
 	}
 	return lock.WriteFileAtomic(root, SkillsLockName, out, 0o644)
 }
+
+func short(s string) string { return s[:min(len(s), 12)] }

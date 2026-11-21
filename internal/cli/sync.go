@@ -129,7 +129,7 @@ func syncRepair(g *globals, lib *library.Library) error {
 // restorePack re-fetches a missing pack at the commit in its lock entry and
 // checks the result against the locked tree hash before it moves it into place.
 func restorePack(g *globals, lib *library.Library, p *manifest.Pack, entry lock.Entry) error {
-	spec := pack.Spec{Name: p.Name, Fetch: p.Fetch, Ref: entry.Resolved, Path: p.Path}
+	spec := pack.Spec{Name: p.Name, Fetch: p.Fetch, Ref: entry.Resolved, Path: p.Path, Log: g.env.Stderr}
 	switch p.Fetch {
 	case manifest.FetchGit:
 		spec.URL = p.URL
@@ -139,6 +139,9 @@ func restorePack(g *globals, lib *library.Library, p *manifest.Pack, entry lock.
 	g.printf("restoring %s at %s...\n", p.Name, short12(entry.Resolved))
 	staged, err := pack.Fetch(lib.Root, spec)
 	if err != nil {
+		if pack.IsToolError(err) {
+			return ioErr(fmt.Errorf("restore %s: %w", p.Name, err))
+		}
 		return ioErr(fmt.Errorf("restore %s: %w (the locked commit may no longer exist)", p.Name, err))
 	}
 	defer pack.Cleanup(lib.Root, staged)
@@ -147,8 +150,15 @@ func restorePack(g *globals, lib *library.Library, p *manifest.Pack, entry lock.
 		return ioErr(err)
 	}
 	if got != entry.Tree {
-		return &exitError{ExitDrift, fmt.Errorf("restore %s: fetched content does not match the lock (lock %s, got %s); nothing was changed",
-			p.Name, strings.TrimPrefix(entry.Tree, lock.HashPrefix)[:12], strings.TrimPrefix(got, lock.HashPrefix)[:12])}
+		hint := ""
+		if p.Fetch == manifest.FetchNPX {
+			// skillmeister 0.5.0 and older let the CLI download a snapshot,
+			// which has no executable bits, for some owners.
+			hint = fmt.Sprintf("; if skillmeister 0.5.0 or older added this npx pack, run `skillmeister add --force --fetch npx --as %s %s` once to fix the lock",
+				p.Name, shellQuote(p.Source))
+		}
+		return &exitError{ExitDrift, fmt.Errorf("restore %s: fetched content does not match the lock (lock %s, got %s); nothing was changed%s",
+			p.Name, strings.TrimPrefix(entry.Tree, lock.HashPrefix)[:12], strings.TrimPrefix(got, lock.HashPrefix)[:12], hint)}
 	}
 	if err := pack.Swap(lib.Root, staged, p.Name); err != nil {
 		return ioErr(err)

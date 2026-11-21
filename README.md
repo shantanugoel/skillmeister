@@ -52,12 +52,16 @@ skillmeister add --ref v1.2.0 git@github.com:acme/doc-skills.git
 
 # A directory on your computer. You edit it in place.
 skillmeister add ~/work/my-skills
+
+# An owner/repo shorthand, through the `skills` CLI.
+skillmeister add vercel-labs/agent-skills
 ```
 
-An `owner/repo` shorthand, such as `vercel-labs/agent-skills`, goes through the
-pinned `skills` CLI. This needs the `package.json` of a library made from a
-clone (see [Other install methods](#other-install-methods)) and `npm ci` in the
-library. A URL does not need it.
+The `owner/repo` shorthand needs Node.js 22.20 or newer. On first use,
+skillmeister uses npm to install the pinned `skills` CLI into its cache
+(`~/Library/Caches/skillmeister` on macOS, `~/.cache/skillmeister` on Linux).
+The library gets no Node files, so `git status` shows no Node files after an
+add. A URL needs only git.
 
 New packs are `untrusted`. If you read a pack and trust it, tell skillmeister:
 

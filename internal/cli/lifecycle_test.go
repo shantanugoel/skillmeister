@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/shantanugoel/skillmeister/internal/pack"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -756,42 +757,82 @@ func TestDoctorCleanLibrary(t *testing.T) {
 	}
 }
 
-// fakeSkills installs a stand-in for the pinned `skills` CLI. It writes the
-// skills and the lock file that the real CLI writes, and logs its arguments.
-func fakeSkills(t *testing.T, lib, commit string, names ...string) string {
+// fakeSkills installs a stand-in for the pinned `skills` CLI in a fresh cache,
+// and a fake node in PATH. It writes the skills and the lock file that the real
+// CLI writes, and logs its arguments. The commit in the lock is the commit of
+// the fragment, or commit when the fragment is not a full hash. It also makes
+// https://github.com/o/r point to a local repo with the tags v1 and v2, so git
+// ls-remote needs no network. It returns the log path and the repo HEAD.
+func fakeSkills(t *testing.T, lib, commit string, names ...string) (string, string) {
 	t.Helper()
+	needGit(t)
+	repo := t.TempDir()
+	write(t, repo, "README.md", "x")
+	head := commitHead(t, repo)
+	for _, tag := range []string{"v1", "v2"} {
+		if out, err := exec.Command("git", "-C", repo, "tag", tag).CombinedOutput(); err != nil {
+			t.Fatalf("git tag: %v %s", err, out)
+		}
+	}
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "url.file://"+repo+".insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_0", "https://github.com/o/r")
+
 	log := filepath.Join(t.TempDir(), "args.log")
 	var creates, entries []string
 	for _, n := range names {
 		creates = append(creates, fmt.Sprintf("mkdir -p .claude/skills/%[1]s\ncat > .claude/skills/%[1]s/SKILL.md <<'EOF'\n---\nname: %[1]s\ndescription: Fake %[1]s.\n---\nbody\nEOF", n))
-		entries = append(entries, fmt.Sprintf(`"%s":{"source":"o/r","commit":"%s","sourceType":"github","installMode":"copy"}`, n, commit))
+		entries = append(entries, fmt.Sprintf(`"%s":{"source":"o/r","commit":"$commit","sourceType":"github","installMode":"copy"}`, n))
 	}
-	// Heredocs keep the JSON free of shell escapes, so dash and bash agree.
-	script := "#!/bin/sh\necho \"$@\" >> '" + log + "'\n" + strings.Join(creates, "\n") +
-		"\ncat > skills-lock.json <<'EOF'\n{\"version\":2,\"skills\":{" + strings.Join(entries, ",") + "}}\nEOF\n"
-	bin := filepath.Join(lib, "node_modules", ".bin", "skills")
+	script := "#!/bin/sh\necho \"$@\" >> '" + log + "'\ncommit=" + commit + "\nfrag=${2#*#}\nfrag=${frag%%@*}\n" +
+		"if [ \"$frag\" != \"$2\" ] && printf %s \"$frag\" | grep -Eq '^[0-9a-f]{40}$'; then commit=$frag; fi\n" +
+		"if [ -n \"$FAKE_SKILLS_COMMIT\" ]; then commit=$FAKE_SKILLS_COMMIT; fi\n" +
+		strings.Join(creates, "\n") +
+		"\ncat > skills-lock.json <<EOF\n{\"version\":2,\"skills\":{" + strings.Join(entries, ",") + "}}\nEOF\n"
+	t.Setenv(pack.CacheEnv, t.TempDir())
+	dir, err := pack.SkillsCLIDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "node_modules", ".bin", "skills")
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return log
+	fakeNode(t, "v99.0.0")
+	fakeScript = script
+	return log, head
+}
+
+// fakeScript is the last fake CLI that fakeSkills wrote.
+var fakeScript string
+
+// fakeNode puts a node in PATH that prints version.
+func fakeNode(t *testing.T, version string) {
+	t.Helper()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "node"), []byte("#!/bin/sh\necho "+version+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func TestNPXPackLifecycle(t *testing.T) {
 	dir := newLib(t)
 	commit := strings.Repeat("ab", 20)
-	log := fakeSkills(t, dir, commit, "pdf", "docx")
+	log, head := fakeSkills(t, dir, commit, "pdf", "docx")
 	// An older entry from another source must survive the merge.
 	write(t, dir, "skills-lock.json", `{"version":2,"skills":{"other":{"source":"x/y","commit":"1111111"}}}`)
 
 	r := mustOK(t, run(t, dir, "add", "--as", "anth", "--ref", "v1", "o/r"))
-	if !strings.Contains(r.out, "added pack anth (npx, 2 skills") || !strings.Contains(r.out, "resolved abababababab") {
+	if !strings.Contains(r.out, "added pack anth (npx, 2 skills") || !strings.Contains(r.out, "resolved "+head[:12]) {
 		t.Errorf("summary:\n%s", r.out)
 	}
 	logged, _ := os.ReadFile(log)
-	if !strings.Contains(string(logged), "add o/r#v1 --skill * -a claude-code -y --copy") {
+	// The ref v1 is resolved to its commit before the CLI runs.
+	if !strings.Contains(string(logged), "add o/r#"+head+" --skill * -a claude-code -y --copy") {
 		t.Errorf("CLI arguments: %s", logged)
 	}
 	sl := read(t, dir, "skills-lock.json")
@@ -800,7 +841,7 @@ func TestNPXPackLifecycle(t *testing.T) {
 	}
 	var lk lock.File
 	json.Unmarshal([]byte(read(t, dir, lock.FileName)), &lk)
-	if lk.Packs["anth"].Resolved != commit || lk.Packs["anth"].Fetch != "npx" {
+	if lk.Packs["anth"].Resolved != head || lk.Packs["anth"].Fetch != "npx" {
 		t.Errorf("lock: %+v", lk.Packs["anth"])
 	}
 	m := read(t, dir, "skillmeister.yaml")
@@ -813,7 +854,7 @@ func TestNPXPackLifecycle(t *testing.T) {
 	os.RemoveAll(filepath.Join(dir, "packs", "anth"))
 	mustOK(t, run(t, dir, "sync"))
 	logged, _ = os.ReadFile(log)
-	if !strings.Contains(string(logged), "add o/r#"+commit+" ") {
+	if !strings.Contains(string(logged), "add o/r#"+head+" ") {
 		t.Errorf("restore did not use the locked commit: %s", logged)
 	}
 	mustOK(t, run(t, dir, "sync", "--frozen"))
@@ -826,15 +867,188 @@ func TestNPXPackLifecycle(t *testing.T) {
 	}
 }
 
-func TestNPXNeedsPinnedCLI(t *testing.T) {
+func TestNPXNeedsNode(t *testing.T) {
 	dir := newLib(t)
+	t.Setenv(pack.CacheEnv, t.TempDir())
+	// A PATH with git but no node and no npm.
+	bin := t.TempDir()
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	os.Symlink(gitPath, filepath.Join(bin, "git"))
+	t.Setenv("PATH", bin)
 	r := run(t, dir, "add", "--as", "anth", "o/r")
-	if r.code == 0 || !strings.Contains(r.err, "npm ci") {
+	if r.code == 0 || !strings.Contains(r.err, "Node.js") || !strings.Contains(r.err, "https://github.com/OWNER/REPO") || strings.Contains(r.err, "npm ci") {
 		t.Errorf("exit %d: %s", r.code, r.err)
 	}
 	if fileExists(filepath.Join(dir, "packs", "anth")) || strings.Contains(read(t, dir, "skillmeister.yaml"), "anth") {
 		t.Error("a failed add changed the library")
 	}
+	// Commands that only read the library need no Node.
+	for _, args := range [][]string{{"find", "alpha"}, {"list"}, {"doctor"}, {"sync", "--frozen"}} {
+		mustOK(t, run(t, dir, args...))
+	}
+	// An old Node is refused with the required version.
+	fakeNode(t, "v18.0.0")
+	if r := run(t, dir, "add", "--as", "anth", "o/r"); r.code == 0 || !strings.Contains(r.err, "22.20.0") {
+		t.Errorf("old node: exit %d: %s", r.code, r.err)
+	}
+}
+
+func TestNPXRefs(t *testing.T) {
+	dir := newLib(t)
+	log, head := fakeSkills(t, dir, strings.Repeat("ab", 20), "pdf")
+	// A source that names a ref cannot take --ref as well.
+	for _, src := range []string{"o/r#v1", "o/r@1.2.0", "https://github.com/o/r/tree/v1/skills"} {
+		r := run(t, dir, "add", "--fetch", "npx", "--as", "x", "--ref", "v2", src)
+		if r.code != ExitUsage || !strings.Contains(r.err, "already names the ref") {
+			t.Errorf("%s: exit %d: %s", src, r.code, r.err)
+		}
+	}
+	// An unknown ref and a short hash fail before the CLI runs.
+	if r := run(t, dir, "add", "--as", "x", "--ref", "nope", "o/r"); r.code == 0 || !strings.Contains(r.err, "ref not found") {
+		t.Errorf("unknown ref: exit %d: %s", r.code, r.err)
+	}
+	if r := run(t, dir, "add", "--as", "x", "--ref", head[:7], "o/r"); r.code == 0 || !strings.Contains(r.err, "full 40-character hash") {
+		t.Errorf("short hash: exit %d: %s", r.code, r.err)
+	}
+	// The ref in a fragment is replaced by its commit, and the filter stays.
+	mustOK(t, run(t, dir, "add", "--as", "frag", "o/r#v2@pdf"))
+	// A restore replaces the ref of the source with the locked commit.
+	os.RemoveAll(filepath.Join(dir, "packs", "frag"))
+	mustOK(t, run(t, dir, "sync"))
+	logged, _ := os.ReadFile(log)
+	if got := strings.Count(string(logged), "add o/r#"+head+"@pdf "); got != 2 {
+		t.Errorf("fragment rewrite (%d):\n%s", got, logged)
+	}
+	// A source that is not on GitHub goes to the CLI as it is.
+	mustOK(t, run(t, dir, "add", "--as", "other", "--ref", "a@b", "notion"))
+	logged, _ = os.ReadFile(log)
+	if !strings.Contains(string(logged), "add notion#a%40b ") {
+		t.Errorf("encoded ref:\n%s", logged)
+	}
+}
+
+func TestNPXInstallsCLIIntoCache(t *testing.T) {
+	dir := newLib(t)
+	_, _ = fakeSkills(t, dir, strings.Repeat("ab", 20), "pdf")
+	cliDir, _ := pack.SkillsCLIDir()
+	base := filepath.Dir(cliDir)
+	os.RemoveAll(cliDir)
+	// A broken install (no CLI) and a stale unfinished install are cleaned up.
+	os.MkdirAll(filepath.Join(cliDir, "node_modules"), 0o755)
+	stale := filepath.Join(base, ".install-old")
+	os.MkdirAll(stale, 0o755)
+	old := time.Now().Add(-2 * time.Hour)
+	os.Chtimes(stale, old, old)
+	// A fake npm that writes the fake CLI, and logs its arguments.
+	npmLog := filepath.Join(t.TempDir(), "npm.log")
+	npmDir := t.TempDir()
+	script := "#!/bin/sh\necho \"$@\" >> '" + npmLog + "'\ntest -f package-lock.json || exit 9\nmkdir -p node_modules/.bin\ncat > node_modules/.bin/skills <<'FAKE'\n" +
+		fakeScript + "FAKE\nchmod 755 node_modules/.bin/skills\n"
+	write(t, npmDir, "npm", script)
+	os.Chmod(filepath.Join(npmDir, "npm"), 0o755)
+	t.Setenv("PATH", npmDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	r := mustOK(t, run(t, dir, "add", "--as", "a", "o/r"))
+	if !strings.Contains(r.err, "installing the pinned skills CLI") {
+		t.Errorf("no install line: %s", r.err)
+	}
+	logged, _ := os.ReadFile(npmLog)
+	if !strings.Contains(string(logged), "ci --ignore-scripts --include=dev") {
+		t.Errorf("npm arguments: %s", logged)
+	}
+	if fileExists(stale) {
+		t.Error("the stale install was not removed")
+	}
+	// The second fetch uses the cache.
+	r = mustOK(t, run(t, dir, "add", "--as", "b", "o/r"))
+	if strings.Contains(r.err, "installing") {
+		t.Errorf("installed again: %s", r.err)
+	}
+	if n := strings.Count(string(mustRead(t, npmLog)), "ci "); n != 1 {
+		t.Errorf("npm ran %d times", n)
+	}
+	// The library holds no Node files.
+	for _, f := range []string{"node_modules", "package.json", "package-lock.json"} {
+		if fileExists(filepath.Join(dir, f)) {
+			t.Errorf("the library has %s", f)
+		}
+	}
+}
+
+func mustRead(t *testing.T, p string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestNPXResolveFailures(t *testing.T) {
+	dir := newLib(t)
+	log, _ := fakeSkills(t, dir, strings.Repeat("ab", 20), "pdf")
+	missing := "file://" + filepath.Join(t.TempDir(), "none")
+	t.Setenv("GIT_CONFIG_COUNT", "3")
+	t.Setenv("GIT_CONFIG_KEY_1", "url."+missing+"/a.insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_1", "https://github.com/o/nope")
+	t.Setenv("GIT_CONFIG_KEY_2", "url."+missing+"/b.insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_2", "https://github.com/vercel-labs/nope")
+	// ls-remote fails: the CLI gets the source as it is.
+	mustOK(t, run(t, dir, "add", "--as", "fb", "o/nope"))
+	if !strings.Contains(string(mustRead(t, log)), "add o/nope --skill") {
+		t.Errorf("fallback:\n%s", mustRead(t, log))
+	}
+	// For a snapshot owner with no ref, the add stops.
+	if r := run(t, dir, "add", "--as", "snap", "vercel-labs/nope"); r.code == 0 || !strings.Contains(r.err, "cannot resolve the commit") {
+		t.Errorf("snapshot owner: exit %d: %s", r.code, r.err)
+	}
+	// With a ref, the snapshot owner also falls back.
+	mustOK(t, run(t, dir, "add", "--as", "snapref", "--ref", "main", "vercel-labs/nope"))
+	// The CLI must install the commit that skillmeister resolved.
+	t.Setenv("FAKE_SKILLS_COMMIT", strings.Repeat("cd", 20))
+	if r := run(t, dir, "add", "--as", "mm", "o/r"); r.code == 0 || !strings.Contains(r.err, "not the requested commit") {
+		t.Errorf("commit check: exit %d: %s", r.code, r.err)
+	}
+}
+
+func TestNPXForceWithSourceRef(t *testing.T) {
+	dir := newLib(t)
+	_, head := fakeSkills(t, dir, strings.Repeat("ab", 20), "pdf")
+	mustOK(t, run(t, dir, "add", "--as", "p", "--ref", "v1", "o/r"))
+	mustOK(t, run(t, dir, "add", "--force", "--as", "p", "o/r#v2"))
+	m := read(t, dir, "skillmeister.yaml")
+	if strings.Contains(m, "ref: v1") || !strings.Contains(m, "o/r#v2") {
+		t.Errorf("manifest:\n%s", m)
+	}
+	r := mustOK(t, run(t, dir, "update", "--check"))
+	if !strings.Contains(r.out, "up to date ("+head[:12]) {
+		t.Errorf("check:\n%s", r.out)
+	}
+	// A restore that does not match the lock names the exact command.
+	var lk lock.File
+	json.Unmarshal([]byte(read(t, dir, lock.FileName)), &lk)
+	e := lk.Packs["p"]
+	e.Tree = lock.HashPrefix + strings.Repeat("0", 64)
+	lk.Packs["p"] = e
+	lk.Write(mustRoot(t, dir))
+	os.RemoveAll(filepath.Join(dir, "packs", "p"))
+	r = run(t, dir, "sync")
+	if !strings.Contains(r.err, "add --force --fetch npx --as p 'o/r#v2'") || strings.Contains(r.err, "may no longer exist") {
+		t.Errorf("hint: %s", r.err)
+	}
+}
+
+func mustRoot(t *testing.T, dir string) *os.Root {
+	t.Helper()
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { r.Close() })
+	return r
 }
 
 func TestAddWithSubdirAndRef(t *testing.T) {

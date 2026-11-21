@@ -83,7 +83,11 @@ func updateCheck(g *globals, lib *library.Library, only string) error {
 			g.printf("%-16s cannot check: %s\n", p.Name, firstLine(err.Error()))
 			failed++
 		case latest.Pinned:
-			g.printf("%-16s pinned to commit %s; `add --force --ref` moves it\n", p.Name, short12(latest.Commit))
+			how := "`add --force --ref` moves it"
+			if p.Fetch == manifest.FetchNPX && pack.NPXSourceRef(p.Source) != "" {
+				how = "change the ref in the source with `add --force` to move it"
+			}
+			g.printf("%-16s pinned to commit %s; %s\n", p.Name, short12(latest.Commit), how)
 		case latest.Commit == entry.Resolved:
 			g.printf("%-16s up to date (%s)\n", p.Name, short12(entry.Resolved))
 		default:
@@ -162,7 +166,12 @@ func applyOne(g *globals, lib *library.Library, p *manifest.Pack, yes bool) (boo
 		g.printf("%s: up to date (%s)\n", p.Name, short12(entry.Resolved))
 		return false, nil
 	}
-	spec := pack.Spec{Name: p.Name, Fetch: p.Fetch, Ref: p.Ref, Path: p.Path}
+	spec := pack.Spec{Name: p.Name, Fetch: p.Fetch, Ref: p.Ref, Path: p.Path, Log: g.env.Stderr}
+	if p.Fetch == manifest.FetchNPX {
+		// Fetch the commit that the check found, so apply gets what check
+		// reported, and the CLI fetches by commit.
+		spec.Ref = latest.Commit
+	}
 	if latest.Pinned {
 		spec.Ref = entry.Resolved // restore the locked commit
 	}

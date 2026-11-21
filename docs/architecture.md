@@ -45,7 +45,7 @@ agent performs on itself, guided by the shim.
   docs/
   .gitattributes               # `* -text`, so tree hashes are byte-stable
   .gitignore                   # skillmeister state, skill setup output, dotenv files
-  package.json                 # pins the `skills` CLI used for npx fetches
+  package.json                 # pins the `skills` CLI used for npx fetches (embedded in the binary)
   package-lock.json
   THIRD_PARTY_NOTICES.md
 ```
@@ -169,8 +169,11 @@ install.sh
   4. skillmeister doctor
 ```
 
-There is nothing to fetch on install because packs are committed. `npm ci` is a
-prerequisite only before `add` or `update` of an npx pack.
+There is nothing to fetch on install because packs are committed. The binary
+embeds the pin of the `skills` CLI. The first npx fetch installs it with
+`npm ci --ignore-scripts` into a per-user cache directory, outside the library
+(see [commands.md](commands.md#npx-packs)). Only `add`, `update --apply`, and a
+`sync` restore of an npx pack need Node.
 
 `init` in an existing library adds the missing lines to `.gitignore` and
 changes no other library file. It adds a line only when no line matches it

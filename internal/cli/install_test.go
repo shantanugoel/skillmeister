@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // cloneTree copies the repo files (tracked, plus new files that are not
@@ -54,6 +55,27 @@ func cloneTree(t *testing.T) string {
 	return dst
 }
 
+// tempHome is a HOME for install.sh. The go command starts a telemetry process
+// that can still write under HOME after the script exits, so t.TempDir cleanup
+// can fail. The cleanup here tries again for a short time.
+func tempHome(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "skillmeister-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for i := 0; i < 50; i++ {
+			if os.RemoveAll(dir) == nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Logf("could not remove %s", dir)
+	})
+	return dir
+}
+
 func installEnv(home, bin string) []string {
 	// The script must set GOFLAGS and GOTOOLCHAIN itself. GOPROXY=off proves
 	// that nothing needs the network.
@@ -83,7 +105,7 @@ func TestInstallScript(t *testing.T) {
 		t.Skip("builds the binary")
 	}
 	clone := cloneTree(t)
-	home := t.TempDir()
+	home := tempHome(t)
 	bin := filepath.Join(home, ".local", "bin")
 
 	out, err := runInstall(t, clone, home, bin)
@@ -153,7 +175,7 @@ func TestInstallRefusesToClobber(t *testing.T) {
 		"command only": "---\nname: docs\n---\n\"/usr/local/bin/skillmeister\" --library \"/tmp/lib\" find --json --limit 8 -- \"q\"\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			home := t.TempDir()
+			home := tempHome(t)
 			dir := filepath.Join(home, ".claude", "skills", "skillmeister")
 			binDir := filepath.Join(home, "bin")
 			write(t, dir, "SKILL.md", body)
@@ -173,7 +195,7 @@ func TestInstallRefusesToClobber(t *testing.T) {
 		})
 	}
 	// A symlink is refused as well.
-	home2 := t.TempDir()
+	home2 := tempHome(t)
 	os.MkdirAll(filepath.Join(home2, ".agents", "skills"), 0o755)
 	os.Symlink(t.TempDir(), filepath.Join(home2, ".agents", "skills", "skillmeister"))
 	if out, err := runInstall(t, clone, home2, filepath.Join(home2, "bin")); err == nil || !strings.Contains(out, "symlink") {
@@ -199,7 +221,7 @@ func TestInstallRelativeBinDir(t *testing.T) {
 		t.Skip("builds the binary")
 	}
 	clone := cloneTree(t)
-	home := t.TempDir()
+	home := tempHome(t)
 	write(t, filepath.Join(home, ".claude"), "CLAUDE.md", "# My rules\nno trailing newline")
 	cmd := exec.Command("sh", filepath.Join(clone, "scripts", "install.sh"))
 	cmd.Dir = home

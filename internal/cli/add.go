@@ -204,6 +204,11 @@ func cmdAdd(g *globals, args []string) error {
 	if fetch == manifest.FetchLocal && *ref != "" {
 		return usageErr("add: --ref is not valid for a local pack")
 	}
+	if fetch == manifest.FetchNPX && *ref != "" {
+		if r := pack.NPXSourceRef(source); r != "" {
+			return usageErr("add: %s already names the ref %q; remove it from the source, or do not pass --ref", source, r)
+		}
+	}
 	if *subPath != "" && fetch == manifest.FetchNPX {
 		return usageErr("add: --path is only valid for local and git sources")
 	}
@@ -233,7 +238,8 @@ func cmdAdd(g *globals, args []string) error {
 
 	return g.withWriter(func(lib *library.Library) error {
 		existing := lib.Manifest.Packs[name]
-		spec := pack.Spec{Name: name, Fetch: fetch, Ref: *ref, Path: *subPath}
+		clearRef := false
+		spec := pack.Spec{Name: name, Fetch: fetch, Ref: *ref, Path: *subPath, Log: g.env.Stderr}
 		switch fetch {
 		case manifest.FetchLocal:
 			spec.Source = expandHome(source)
@@ -253,8 +259,14 @@ func cmdAdd(g *globals, args []string) error {
 				}
 				return usageErr("add: pack %q uses fetch %s; remove it first to change the fetch method", name, existing.Fetch)
 			}
-			if spec.Ref == "" {
+			// A source that names its ref replaces the old ref. Else the
+			// old ref stays.
+			sourceRef := fetch == manifest.FetchNPX && pack.NPXSourceRef(source) != ""
+			if spec.Ref == "" && !sourceRef {
 				spec.Ref = existing.Ref
+			}
+			if sourceRef && existing.Ref != "" {
+				clearRef = true
 			}
 			if spec.Path == "" && fetch == manifest.FetchGit {
 				spec.Path = existing.Path
@@ -340,6 +352,9 @@ func cmdAdd(g *globals, args []string) error {
 			err = doc.AddPack(name, np)
 		} else {
 			err = updateExisting(doc, existing, spec, pathField, source, trust)
+			if err == nil && clearRef {
+				err = doc.ClearField(name, "ref")
+			}
 		}
 		if err != nil {
 			return fail(ioErr(err))
