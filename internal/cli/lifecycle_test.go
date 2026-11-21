@@ -321,7 +321,8 @@ func TestInferFetch(t *testing.T) {
 	for src, want := range map[string]string{
 		"./x": "local", "../x": "local", "/abs/x": "local", "~/x": "local", existing: "local",
 		"git@github.com:o/r.git": "git", "https://x.com/o/r.git": "git", "file:///x/y": "git", "ssh://git@x/y": "git",
-		"anthropics/skills": "npx", "https://github.com/o/r": "npx", "notion": "npx",
+		"https://github.com/o/r": "git", "http://git.example.com/o/r": "git",
+		"anthropics/skills": "npx", "notion": "npx",
 	} {
 		if got := string(inferFetch(src)); got != want {
 			t.Errorf("inferFetch(%q) = %s, want %s", src, got, want)
@@ -334,6 +335,53 @@ func TestInferFetch(t *testing.T) {
 		if got, err := derivePackID(src); err != nil || got != want {
 			t.Errorf("derivePackID(%q) = %q, %v; want %q", src, got, err, want)
 		}
+	}
+}
+
+func TestSplitHostedURL(t *testing.T) {
+	for _, c := range []struct{ in, repo, ref, sub string }{
+		{"https://github.com/o/r/tree/main/skills/pdf", "https://github.com/o/r", "main", "skills/pdf"},
+		{"https://github.com/o/r/tree/v1.2/", "https://github.com/o/r", "v1.2", ""},
+		{"https://GitHub.com/o/r?tab=readme-ov-file#readme", "https://GitHub.com/o/r", "", ""},
+		{"https://github.com/o/r/tree/main/skills?tab=x", "https://github.com/o/r", "main", "skills"},
+		{"https://github.com/o/tree/tree/main/skills", "https://github.com/o/tree", "main", "skills"},
+		{"https://github.com/tree/r/tree/main", "https://github.com/tree/r", "main", ""},
+		{"https://github.com/o/r/tree/feature%2Fx/a%20b", "https://github.com/o/r", "feature/x", "a b"},
+		{"https://github.com/o/r.git", "https://github.com/o/r.git", "", ""},
+		{"https://gitlab.com/g/s/r/-/tree/dev/skills", "https://gitlab.com/g/s/r", "dev", "skills"},
+		{"https://gitlab.com/g/s/r", "https://gitlab.com/g/s/r", "", ""},
+	} {
+		h, err := splitHostedURL(c.in)
+		if err != nil || h == nil || h.repo != c.repo || h.ref != c.ref || h.sub != c.sub {
+			t.Errorf("splitHostedURL(%q) = %+v, %v", c.in, h, err)
+		}
+	}
+	for _, in := range []string{
+		"https://example.com/o/r/tree/main", "https://github.com/o", "git@github.com:o/r.git",
+		"https://github.com:8443/o/r/tree/main", "https://u@github.com/o/r",
+	} {
+		if h, err := splitHostedURL(in); h != nil || err != nil {
+			t.Errorf("splitHostedURL(%q) = %+v, %v; want no match", in, h, err)
+		}
+	}
+	for _, in := range []string{
+		"https://github.com/o/r/blob/main/skills/pdf/SKILL.md", "https://github.com/o/r/tree/",
+		"https://github.com/o/r/issues", "https://gitlab.com/g/r/-/blob/main/x", "https://gitlab.com/g/r/-",
+	} {
+		if _, err := splitHostedURL(in); err == nil {
+			t.Errorf("splitHostedURL(%q) gave no error", in)
+		}
+	}
+	for in, want := range map[string]bool{
+		"https://www.npmjs.com/package/x": true, "https://npmjs.com/package/@s/x": true, "https://npm.im/x": true,
+		"https://github.com/o/r": false, "npmjs.com": false,
+	} {
+		if got := isNPMPage(in); got != want {
+			t.Errorf("isNPMPage(%q) = %v", in, got)
+		}
+	}
+	if got := string(inferFetch("HTTPS://github.com/o/r")); got != "git" {
+		t.Errorf("inferFetch with an uppercase scheme = %s", got)
 	}
 }
 

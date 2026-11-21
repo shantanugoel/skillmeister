@@ -1,15 +1,14 @@
 # Skillmeister
 
-Skillmeister is a local library of agent skills with one router entry point. You
-collect skills in one git repo. Your agent sees one skill: the router. All other
-skills are text files until the router finds one.
+Skillmeister keeps all your agent skills in one local library. Your agent sees
+only one skill: the router. The router finds the correct skill when the agent
+needs it, so a large library does not fill the context of the agent.
 
-Read [docs/overview.md](docs/overview.md) for the idea and
-[docs/architecture.md](docs/architecture.md) for the design.
+Read [docs/overview.md](docs/overview.md) for the idea,
+[docs/architecture.md](docs/architecture.md) for the design, and
+[docs/commands.md](docs/commands.md) for the full command reference.
 
-## Install
-
-### With Homebrew
+## Quick start
 
 ```sh
 brew tap shantanugoel/tap
@@ -17,36 +16,108 @@ brew install skillmeister
 skillmeister init
 ```
 
-`skillmeister init` does the setup. It is safe to run again.
+`init` makes the library at `~/.skillmeister` (a git repo) and installs the
+router skill for Claude Code and other agents. It is safe to run again. After
+`brew upgrade`, run `skillmeister doctor`. If it reports `shim-stale` or
+`gitignore-missing`, run `skillmeister init` again.
 
-1. It creates the library at `~/.skillmeister` (a manifest, a `skills/`
-   directory, `.gitignore`, and `.gitattributes`). In an existing library, it
-   changes one file only: it adds missing lines to `.gitignore`. It never
-   removes or changes a line.
-2. It writes the shim into `~/.agents/skills/skillmeister` and
-   `~/.claude/skills/skillmeister`. It stops, before it writes anything, if one
-   of them is a real directory that skillmeister did not create.
+Then add some skills and commit them:
 
-After `brew upgrade`, run `skillmeister init` again if `skillmeister doctor`
-reports `shim-stale` or `gitignore-missing`. The new binary carries the new shim
-text and the new ignore lines, and `init` writes them.
+```sh
+skillmeister add https://github.com/obra/superpowers
+cd ~/.skillmeister && git add -A && git commit -m "add superpowers skills"
+```
 
-`init` changes nothing but the library and those two shim directories. It does
-not edit `CLAUDE.md`, `AGENTS.md`, or any settings file.
+Now ask your agent for a task, for example "help me debug this failing test". The
+agent uses the router to find a skill and load it.
 
-Use `--library PATH` to put the library somewhere else, or `--no-shim` to make
-the library without touching agent config. Skillmeister keeps no config file. To
-use another library every time, set `SKILLMEISTER_ROOT` in your shell profile.
-If you run a command before `init`, the error tells you to run it.
+## Add skills
 
-### From a release or a clone
+Give `add` a URL, a path, or an `owner/repo` shorthand. Skillmeister finds the
+fetch method from the source.
 
-Download a binary from the
+```sh
+# A git repo. Any https://, ssh://, or git@ URL is a git repo.
+skillmeister add https://github.com/obra/superpowers
+
+# One directory of a repo. Copy the URL from your browser.
+# Skillmeister reads the branch (main) and the directory from the URL.
+skillmeister add https://github.com/obra/superpowers/tree/main/skills/systematic-debugging
+
+# A different repo, with a pack name that you choose.
+skillmeister add --as vercel https://github.com/vercel-labs/agent-skills
+
+# A tag or a commit.
+skillmeister add --ref v1.2.0 git@github.com:acme/doc-skills.git
+
+# A directory on your computer. You edit it in place.
+skillmeister add ~/work/my-skills
+```
+
+An `owner/repo` shorthand, such as `vercel-labs/agent-skills`, goes through the
+pinned `skills` CLI. This needs the `package.json` of a library made from a
+clone (see [Other install methods](#other-install-methods)) and `npm ci` in the
+library. A URL does not need it.
+
+New packs are `untrusted`. If you read a pack and trust it, tell skillmeister:
+
+```sh
+skillmeister trust --level trusted superpowers
+```
+
+Skillmeister does not commit. After `add`, `remove`, `update --apply`, or
+`sync`, examine the change with `git status` and commit it yourself.
+
+## Other common commands
+
+```sh
+skillmeister list --packs                       # show the packs and the number of skills
+skillmeister find debugging                     # search for a skill
+skillmeister show systematic-debugging          # show a skill
+skillmeister disable superpowers/brainstorming  # hide one skill (or a full pack)
+skillmeister update --check                     # look for upstream changes
+skillmeister update --apply                     # get the upstream changes
+skillmeister remove superpowers                 # remove a pack
+skillmeister doctor                             # check the library and the router
+```
+
+## Claude Code permissions
+
+Claude Code asks before it runs a command or reads a file outside the project.
+To stop these questions for skillmeister, add these rules to
+`~/.claude/settings.json`. Change the two paths to the paths on your computer:
+`which skillmeister` gives the binary path.
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(/opt/homebrew/bin/skillmeister:*)",
+      "Read(//Users/me/.skillmeister/**)"
+    ],
+    "deny": [
+      "Read(//Users/me/.skillmeister/**/.env)",
+      "Read(//Users/me/.skillmeister/**/.env.*)"
+    ],
+    "additionalDirectories": ["/Users/me/.skillmeister"]
+  }
+}
+```
+
+The `Read` path starts with two slashes. This is correct. The `deny` rules stop
+the agent from reading secrets that a skill setup puts in the library. Remove
+them if you do not need them.
+
+Skillmeister does not change this file for you. For more about permissions, see
+[docs/commands.md](docs/commands.md#claude-code-permission-details).
+
+## Other install methods
+
+**Release binary.** Download a binary from the
 [releases page](https://github.com/shantanugoel/skillmeister/releases), put it
 in your `PATH`, and run `skillmeister init`.
 
-To build from source, you need Go 1.27 or newer and git. You do not need a
-network.
+**From source.** You need Go 1.27 or newer and git. You do not need a network.
 
 ```sh
 git clone git@github.com:shantanugoel/skillmeister.git
@@ -54,174 +125,13 @@ cd skillmeister
 scripts/install.sh
 ```
 
-The script builds the binary from `vendor/` into `~/.local/bin` (`BIN_DIR`
-changes the place), then runs `skillmeister init` for this clone, so the clone
-is your library. It stops before it writes anything if a shim path holds
-something that is not a skillmeister shim.
+The script builds the binary into `~/.local/bin` (set `BIN_DIR` to change it).
+Then it runs `skillmeister init` for this clone, so the clone is your library.
+It stops before it writes anything if a shim path holds something that is not a
+skillmeister shim. Make sure that `~/.local/bin` is in your `PATH`.
 
-Make sure the binary is in your `PATH`.
-
-To add or update an npx pack, run `npm ci` in the library first. This installs
-the pinned `skills` CLI.
-
-## Claude Code permissions
-
-Claude Code asks before it runs a command or reads a file outside the project.
-Add these rules to `~/.claude/settings.json`. Replace `BIN` with the absolute
-path of the binary and `LIB` with the absolute path of the library.
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(BIN:*)",
-      "Read(/LIB/**)"
-    ],
-    "additionalDirectories": ["LIB"]
-  }
-}
-```
-
-An absolute path in a `Read` rule starts with two slashes, so `Read(/LIB/**)`
-has the one slash that `LIB` brings and one more. For example, with the binary
-at `/home/me/.local/bin/skillmeister` and the library at
-`/home/me/.skillmeister`:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(/home/me/.local/bin/skillmeister:*)",
-      "Read(//home/me/.skillmeister/**)"
-    ],
-    "additionalDirectories": ["/home/me/.skillmeister"]
-  }
-}
-```
-
-The shim writes the binary path inside double quotes. The `Bash` rule matches
-that form: the Phase 0 spike (see [docs/phase0.md](docs/phase0.md)) ran the
-quoted command line with this rule and got no permission prompt. The spike
-passed the rules as command line options, not through `settings.json`, so the
-settings file itself is not tested.
-
-Skillmeister does not change this file for you.
-
-The shim lets the agent run the scripts of a `trusted` pack after one question
-per skill. Claude Code can still ask before each command, because the `Bash`
-rule above covers only the skillmeister binary. To stop these questions for a
-pack that you trust, allow its launcher. For example, every HyperFrames skill
-runs one launcher:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(node /home/me/.skillmeister/packs/hyperframes/hyperframes/scripts/plugin-cli.mjs:*)"
-    ]
-  }
-}
-```
-
-These rules are not tested. Make it as narrow as possible: a rule such as
-`Bash(node:*)` lets the agent run any script.
-
-A skill setup can put secrets in the library, for example an API key in a
-`.env` file in the skill directory. The `Read` rule above lets the agent read
-such a file with no prompt. To prevent this, add a deny rule:
-
-```json
-{
-  "permissions": {
-    "deny": [
-      "Read(//home/me/.skillmeister/**/.env)",
-      "Read(//home/me/.skillmeister/**/.env.*)"
-    ]
-  }
-}
-```
-
-## Use
-
-Flags go before positional arguments. Use `--` to end the flags.
-
-```text
-skillmeister find   [--json] [--limit N] [--pack P] [--all] [--partial] <query>
-skillmeister show   [--summary] [--raw] [--meta] <id|name>
-skillmeister path   <id>
-skillmeister list   [--json] [--pack P] [--all] [--trust T] [--brief|--packs]
-
-skillmeister add    [--as P] [--fetch local|npx|git] [--ref R] [--path D] [--trust T] [--force] <source>
-skillmeister enable  <pack|pack/skill>
-skillmeister disable <pack|pack/skill>
-skillmeister remove  [--purge] <pack>
-skillmeister sync    [--frozen]
-skillmeister update  [--check|--apply] [--yes] [pack]
-skillmeister trust   --level trusted|pinned [--accept] [--yes] <pack>
-skillmeister doctor  [--security] [--json]
-skillmeister init    [--bin P] [--no-shim]
-```
-
-Global flags go before the command: `--library PATH` (or `SKILLMEISTER_ROOT`;
-the default is `~/.skillmeister`),
-`--profile P` (or `SKILLMEISTER_PROFILE`), `--no-color`.
-
-Exit codes: `0` success, `1` usage error, `2` drift or integrity failure, `3`
-I/O error, lock contention, or subprocess failure.
-
-`find` searches the name, the description, and the first 8 KB of the body of
-each skill. Every keyword must match in one of these fields. With `--partial`,
-when no skill matches every keyword in one field, `find` returns the skills
-that match some of the keywords. A partial match has a score below 20. A
-score of 19 means that the skill matches all keywords, but not in one field.
-Partial search ignores repeated keywords and keywords shorter than three
-characters.
-
-`list --packs` prints one line for each pack, with its number of skills in
-scope. A pack with no skill in scope (for example, after `--trust`) is not
-shown. `list --brief` prints one line for each skill, with the first sentence
-of its description. A longer sentence is cut at a word, and `...` is added,
-so the line has at most 80 characters after the trust. Use these options to
-browse a large library.
-
-`update --check` reads from the network (`git ls-remote`) and writes nothing.
-`update --apply` shows a diff summary, asks for confirmation (or needs `--yes`
-when stdin is not a terminal), and then swaps the pack. It also restores the
-upstream content of a modified pinned pack.
-
-`doctor` checks the library and also verifies the two shims under `$HOME`
-(`~/.agents/skills/skillmeister/SKILL.md` and
-`~/.claude/skills/skillmeister/SKILL.md`); missing or stale shims are errors
-that make `doctor` exit `2`. Pass `HOME=""` to skip the two shim checks, or use
-`sync --frozen` in CI for a read-only library integrity check.
-
-`doctor --security` adds lexical heuristics: bundled scripts, `curl | sh`,
-`sudo`, `eval`, base64 blobs, secret paths, broad `allowed-tools`, `!` lines,
-and `../` paths that leave the pack directory. A hit in a pack that you declared
-`trusted` is a warning. A hit in any other pack is high severity and makes the
-command exit `2`. The rules are heuristics, not proof.
-
-`add` accepts a source that is one skill: a repo or directory with `SKILL.md`
-at its root. The whole directory becomes one skill. If the directory also has
-skill subdirectories, these subdirectories are the skills instead. `--path D`
-selects a subtree, and that subtree can also be one skill.
-
-### Skills that need a setup
-
-Some skills tell you to install dependencies or to write a secret into the
-skill directory, for example `uv sync` (which makes `.venv/`) or an API key in
-`.env`. The library `.gitignore` keeps these files out of git. These limits
-apply:
-
-- `update --apply` and `add --force` replace the whole pack directory. The
-  `.venv/`, the `.env`, and other local files in it are deleted. Do the setup
-  again after an update, and keep a copy of the secret in another place.
-- The tree hash of a `pinned` pack includes every file, so a setup in the pack
-  directory shows as `modified`. Use `trusted` for a pack that you set up in
-  place, or do the setup outside the library.
-
-`add`, `remove`, `update --apply`, and `sync` change files in the library. They never commit.
-Review the diff with `git status`, then commit it yourself.
+**A different library.** Use `skillmeister --library PATH init`, or set
+`SKILLMEISTER_ROOT` in your shell profile.
 
 ## Test
 

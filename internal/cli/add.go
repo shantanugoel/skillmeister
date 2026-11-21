@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,14 +15,17 @@ import (
 	"github.com/shantanugoel/skillmeister/internal/pack"
 )
 
-// inferFetch picks the fetch mechanism from the source text.
+// inferFetch picks the fetch mechanism from the source text. A path is local,
+// a URL is git, and other text (owner/repo) goes to the `skills` CLI.
 func inferFetch(source string) manifest.Fetch {
+	lower := strings.ToLower(source)
 	switch {
 	case strings.HasPrefix(source, "/"), strings.HasPrefix(source, "./"), strings.HasPrefix(source, "../"),
 		strings.HasPrefix(source, "~"), source == ".", source == "..":
 		return manifest.FetchLocal
-	case strings.HasPrefix(source, "git@"), strings.HasPrefix(source, "ssh://"),
-		strings.HasPrefix(source, "file://"), strings.HasSuffix(source, ".git"):
+	case strings.HasPrefix(source, "git@"), strings.HasPrefix(lower, "ssh://"),
+		strings.HasPrefix(lower, "file://"), strings.HasPrefix(lower, "https://"),
+		strings.HasPrefix(lower, "http://"), strings.HasSuffix(source, ".git"):
 		return manifest.FetchGit
 	}
 	if st, err := os.Stat(source); err == nil && st.IsDir() {
@@ -29,6 +33,95 @@ func inferFetch(source string) manifest.Fetch {
 	}
 	return manifest.FetchNPX
 }
+
+// isNPMPage reports whether source is a package page on npmjs.com.
+func isNPMPage(source string) bool {
+	u, err := url.Parse(source)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+		return false
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "npmjs.com", "www.npmjs.com", "npmjs.org", "www.npmjs.org", "npm.im":
+		return true
+	}
+	return false
+}
+
+// hostedURL is a github.com or gitlab.com URL that add split into its parts.
+type hostedURL struct {
+	repo string // the clone URL, with no query, fragment, or page path
+	ref  string // the ref from a directory URL, or empty
+	sub  string // the subtree from a directory URL, or empty
+}
+
+// splitHostedURL reads a github.com or gitlab.com URL that a browser shows: a
+// repo page (https://github.com/o/r?tab=readme-ov-file) or a directory page
+// (https://github.com/o/r/tree/main/skills). The first segment after tree/ is
+// the ref, so a branch name with a slash is not supported. It returns nil for
+// a URL of a different host, and an error for a page that is not a repo or a
+// directory, such as a file (blob) page.
+func splitHostedURL(source string) (*hostedURL, error) {
+	u, err := url.Parse(source)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" {
+		return nil, nil
+	}
+	host := strings.ToLower(u.Hostname())
+	var segs []string
+	for _, s := range strings.Split(strings.Trim(u.EscapedPath(), "/"), "/") {
+		d, err := url.PathUnescape(s)
+		if err != nil {
+			return nil, nil
+		}
+		segs = append(segs, d)
+	}
+	// repoEnd is the number of segments that name the repo. page is the rest.
+	var repoEnd int
+	var page []string
+	switch host {
+	case "github.com", "www.github.com":
+		if len(segs) < 2 {
+			return nil, nil
+		}
+		repoEnd, page = 2, segs[2:]
+	case "gitlab.com", "www.gitlab.com":
+		repoEnd = len(segs)
+		for i, s := range segs {
+			if s == "-" {
+				repoEnd = i
+				break
+			}
+		}
+		if repoEnd < 2 {
+			return nil, nil
+		}
+		page = segs[repoEnd:]
+		if len(page) > 0 {
+			page = page[1:] // drop the "-"
+			if len(page) == 0 {
+				return nil, fmt.Errorf("%s is not a repo or directory URL", source)
+			}
+		}
+	default:
+		return nil, nil
+	}
+	h := &hostedURL{}
+	switch {
+	case len(page) == 0:
+	case page[0] == "tree" && len(page) >= 2 && page[1] != "":
+		h.ref = page[1]
+		h.sub = path.Join(page[2:]...)
+	default:
+		return nil, fmt.Errorf("%s is not a repo or directory URL; copy the URL of the repo or of a directory (tree), not of a file", source)
+	}
+	u.Path = "/" + strings.Join(segs[:repoEnd], "/")
+	u.RawPath, u.RawQuery, u.Fragment, u.ForceQuery = "", "", "", false
+	h.repo = u.String()
+	return h, nil
+}
+
+// genericDirs are subtree names that say nothing about the pack, so the pack
+// ID comes from the repo instead.
+var genericDirs = map[string]bool{"skills": true, ".skills": true, "agents": true, "own": true}
 
 // derivePackID builds a pack ID from the last path segment of the source.
 func derivePackID(source string) (string, error) {
@@ -73,12 +166,40 @@ func cmdAdd(g *globals, args []string) error {
 	source := fs.Arg(0)
 
 	fetch := manifest.Fetch(*fetchFlag)
+	inferred := fetch == ""
 	switch fetch {
 	case "":
+		if isNPMPage(source) {
+			return usageErr("add: %s is an npm package page, not a git repo. "+
+				"Use the repo URL of the package (the Repository link on that page)", source)
+		}
 		fetch = inferFetch(source)
 	case manifest.FetchLocal, manifest.FetchNPX, manifest.FetchGit:
 	default:
 		return usageErr("add: --fetch must be local, npx, or git")
+	}
+	// A github.com or gitlab.com page URL gives the clone URL, and a directory
+	// URL also gives the ref and the subtree. Explicit --ref and --path win
+	// over the URL. The pack ID comes from the subtree, unless the subtree ends
+	// in a generic name such as skills.
+	idSource := source
+	if fetch == manifest.FetchGit {
+		h, err := splitHostedURL(source)
+		if err != nil {
+			return usageErr("add: %v", err)
+		}
+		if h != nil {
+			source, idSource = h.repo, h.repo
+			if *ref == "" {
+				*ref = h.ref
+			}
+			if *subPath == "" && h.sub != "" {
+				*subPath = h.sub
+				if id, err := derivePackID(h.sub); err == nil && !genericDirs[path.Base(h.sub)] {
+					idSource = id
+				}
+			}
+		}
 	}
 	if fetch == manifest.FetchLocal && *ref != "" {
 		return usageErr("add: --ref is not valid for a local pack")
@@ -88,7 +209,7 @@ func cmdAdd(g *globals, args []string) error {
 	}
 	name := *as
 	if name == "" {
-		id, err := derivePackID(source)
+		id, err := derivePackID(idSource)
 		if err != nil {
 			return usageErr("add: %v", err)
 		}
@@ -126,6 +247,10 @@ func cmdAdd(g *globals, args []string) error {
 				return usageErr("add: pack %q already exists; pass --force to replace it", name)
 			}
 			if existing.Fetch != fetch {
+				if inferred {
+					return usageErr("add: pack %q uses fetch %s, but %s looks like fetch %s; pass --fetch %s to keep the method, or remove the pack first to change it",
+						name, existing.Fetch, source, fetch, existing.Fetch)
+				}
 				return usageErr("add: pack %q uses fetch %s; remove it first to change the fetch method", name, existing.Fetch)
 			}
 			if spec.Ref == "" {
@@ -142,6 +267,9 @@ func cmdAdd(g *globals, args []string) error {
 		g.printf("fetching %s (%s)...\n", source, fetch)
 		staged, err := pack.Fetch(lib.Root, spec)
 		if err != nil {
+			if inferred && fetch == manifest.FetchGit {
+				err = fmt.Errorf("%w (if %s is not a git repo, pass --fetch npx)", err, source)
+			}
 			return ioErr(fmt.Errorf("add %s: %w", name, err))
 		}
 		defer pack.Cleanup(lib.Root, staged)

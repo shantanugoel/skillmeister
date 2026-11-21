@@ -223,9 +223,26 @@ agent to change the keywords.
 skillmeister add --as anthropic --fetch npx --ref 8f3c2a1 anthropics/skills
 ```
 
-- `--fetch` is inferred when omitted: a path is `local`, a `git@` or `.git` URL
-  is `git`, and an `owner/repo` or package spec is `npx`. Pass `--fetch git` to
-  clone a GitHub repo directly. `--ref` is rejected for `local`.
+- `--fetch` is inferred when omitted: a path is `local`, a URL (`https://`,
+  `http://`, `ssh://`, `file://`, `git@`, or a `.git` suffix) is `git`, and an
+  `owner/repo` shorthand is `npx`. Pass `--fetch npx` to send a URL to the
+  `skills` CLI. `--ref` is rejected for `local`.
+- A `github.com` or `gitlab.com` page URL from a browser gives the clone URL.
+  `add` removes the query and the fragment. A directory URL, such as
+  `https://github.com/o/r/tree/main/skills/pdf`, also gives the ref (`main`) and
+  the subtree (`skills/pdf`). The first segment after `tree/` is the ref, so a
+  branch name with a slash is not supported. An explicit `--ref` or `--path`
+  overrides the URL. The pack ID comes from the last segment of the subtree,
+  unless that segment is generic (`skills`, `.skills`, `agents`, `own`); then
+  it comes from the repo. A file URL (`blob/`) and other page URLs on these
+  hosts are rejected.
+- An npm package page (`npmjs.com`, `npmjs.org`, `npm.im`) is rejected. The
+  `skills` CLI installs from a git repo, not from an npm package, so `add`
+  tells you to use the repo URL.
+- When an inferred `git` fetch fails, the error says to pass `--fetch npx` if
+  the source is not a git repo.
+- On a forced re-add, an inferred method that differs from the method of the
+  pack is an error. Pass `--fetch` with the method of the pack to keep it.
 - stage in `.import/` (npx runs there and its lock entries are merged into the
   root `skills-lock.json`; git clones there; local copies there)
 - normalize skill directory names, then reject normalized collisions with the
