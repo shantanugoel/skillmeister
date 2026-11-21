@@ -29,7 +29,7 @@ cd ~/.skillmeister && git add -A && git commit -m "add superpowers skills"
 ```
 
 Now ask your agent for a task, for example "help me debug this failing test". The
-agent uses the router to find a skill and load it.
+agent uses the router to find a skill and load it. Prefer to name the skill directly so it can search and use exactly the skill you want.
 
 ## Add skills
 
